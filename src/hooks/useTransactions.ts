@@ -3,11 +3,6 @@ import { supabase } from '@/integrations/supabase/client';
 import { DEMO_TRANSACTIONS } from '@/lib/demo-data';
 import type { Transaction, TransactionStatus, ExpenseCategory } from '@/types';
 
-const isDemoMode = () => {
-  // Demo mode when no user is logged in
-  return false; // Will be toggled based on auth state
-};
-
 export function useTransactions(filters?: {
   month?: string;
   category?: ExpenseCategory;
@@ -105,9 +100,16 @@ export function useConfirmTransaction() {
       if (error) throw error;
       return data;
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
       qc.invalidateQueries({ queryKey: ['transactions'] });
       qc.invalidateQueries({ queryKey: ['transaction'] });
+
+      // Trigger async syncs (fire and forget)
+      const txId = data.id;
+      supabase.functions.invoke('sync-sheets', { body: { transaction_id: txId } })
+        .catch(e => console.error('sync-sheets error:', e));
+      supabase.functions.invoke('sync-drive', { body: { transaction_id: txId } })
+        .catch(e => console.error('sync-drive error:', e));
     },
   });
 }

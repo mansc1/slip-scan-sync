@@ -271,6 +271,7 @@ export type Database = {
         | "confirmed"
         | "ignored"
         | "editing"
+        | "extraction_failed"
       transaction_type:
         | "transfer"
         | "bill_payment"
@@ -425,6 +426,7 @@ export const Constants = {
         "confirmed",
         "ignored",
         "editing",
+        "extraction_failed",
       ],
       transaction_type: [
         "transfer",

@@ -48,6 +48,7 @@ export function TransactionFilters({
           <SelectItem value="pending_confirmation">รอยืนยัน</SelectItem>
           <SelectItem value="confirmed">ยืนยันแล้ว</SelectItem>
           <SelectItem value="ignored">ข้าม</SelectItem>
+          <SelectItem value="extraction_failed">อ่านไม่ได้</SelectItem>
         </SelectContent>
       </Select>
     </div>
