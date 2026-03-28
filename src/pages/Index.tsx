@@ -1,16 +1,83 @@
-// Update this page (the content is just a fallback if you fail to update the page)
+import { useState } from 'react';
+import { AppLayout } from '@/components/layout/AppLayout';
+import { OverviewCards } from '@/components/dashboard/OverviewCards';
+import { TransactionTable } from '@/components/dashboard/TransactionTable';
+import { TransactionFilters } from '@/components/dashboard/TransactionFilters';
+import { SlipUploader } from '@/components/dashboard/SlipUploader';
+import { useTransactions, useDashboardStats, useConfirmTransaction, useIgnoreTransaction } from '@/hooks/useTransactions';
+import { toast } from 'sonner';
+import type { ExpenseCategory, TransactionStatus } from '@/types';
 
-// IMPORTANT: Fully REPLACE this with your own code
-const PlaceholderIndex = () => {
-  // PLACEHOLDER: Replace this entire return statement with the user's app.
-  // The inline background color is intentionally not part of the design system.
+const Index = () => {
+  const [search, setSearch] = useState('');
+  const [category, setCategory] = useState('all');
+  const [status, setStatus] = useState('all');
+
+  const { data: transactions = [], isLoading } = useTransactions({
+    search: search || undefined,
+    category: category !== 'all' ? (category as ExpenseCategory) : undefined,
+    status: status !== 'all' ? (status as TransactionStatus) : undefined,
+  });
+
+  const stats = useDashboardStats(transactions);
+  const confirmMutation = useConfirmTransaction();
+  const ignoreMutation = useIgnoreTransaction();
+
+  const handleConfirm = (id: string) => {
+    const tx = transactions.find(t => t.id === id);
+    confirmMutation.mutate(
+      { id, categoryFinal: tx?.category_guess || undefined },
+      {
+        onSuccess: () => toast.success('ยืนยันรายการแล้ว'),
+        onError: () => toast.error('เกิดข้อผิดพลาด'),
+      }
+    );
+  };
+
+  const handleIgnore = (id: string) => {
+    ignoreMutation.mutate(id, {
+      onSuccess: () => toast.success('ข้ามรายการแล้ว'),
+      onError: () => toast.error('เกิดข้อผิดพลาด'),
+    });
+  };
+
   return (
-    <div className="flex min-h-screen items-center justify-center" style={{ backgroundColor: '#fcfbf8' }}>
-      <img data-lovable-blank-page-placeholder="REMOVE_THIS" src="/placeholder.svg" alt="Your app will live here!" />
-    </div>
+    <AppLayout>
+      <div className="space-y-6">
+        <div>
+          <h1 className="text-2xl font-bold">Dashboard</h1>
+          <p className="text-muted-foreground text-sm">ภาพรวมรายจ่ายส่วนตัว</p>
+        </div>
+
+        <OverviewCards {...stats} />
+
+        <div className="grid gap-6 lg:grid-cols-3">
+          <div className="lg:col-span-2 space-y-4">
+            <TransactionFilters
+              search={search}
+              onSearchChange={setSearch}
+              category={category}
+              onCategoryChange={setCategory}
+              status={status}
+              onStatusChange={setStatus}
+            />
+            <TransactionTable
+              transactions={transactions}
+              onConfirm={handleConfirm}
+              onIgnore={handleIgnore}
+            />
+          </div>
+          <div>
+            <SlipUploader
+              onExtracted={(result) => {
+                toast.success('สกัดข้อมูลจากสลิปสำเร็จ');
+              }}
+            />
+          </div>
+        </div>
+      </div>
+    </AppLayout>
   );
 };
-
-const Index = PlaceholderIndex;
 
 export default Index;
