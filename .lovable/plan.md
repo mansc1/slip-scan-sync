@@ -1,158 +1,226 @@
-SlipSync MVP — Full Implementation Plan
+# SlipSync — Integration & Testing Checklist
 
-## Current State
+This is a step-by-step testing guide. No code changes needed — this documents what to do, what to configure, and what success looks like at each stage.
 
-- **Database**: Schema fully deployed (transactions, users, transaction_images, export_jobs, processed_messages tables + enums + RLS + storage bucket)
-- **Frontend**: Dashboard, transaction detail/edit pages, filters, uploader components all exist with demo data
-- **Edge Functions**: None created yet
-- **Auth**: No login/signup pages
-- **Missing**: All 6 edge functions, authentication pages, auth-aware routing
+---
 
-## What Needs to Be Built
+## Step 1: Verify Auth and Demo Mode
 
-### 1. Authentication (Login/Signup)
+**Secrets/config needed:** None
 
-- Create `src/pages/Auth.tsx` — email/password login + signup form
-- Create `src/hooks/useAuth.ts` — auth state hook using `onAuthStateChange`
-- Add auth-aware routing in `App.tsx` — redirect unauthenticated users to `/auth`
-- Update `AppSidebar.tsx` — show user info + logout button instead of "Demo Mode"
-- Auto-create profile row in `users` table on signup via database trigger
+**How to test:**
+1. Open the app at the preview URL
+2. Verify the dashboard loads with 6 demo transactions
+3. Click "เข้าสู่ระบบ" in the sidebar bottom — should navigate to `/auth`
+4. Switch to "สมัครสมาชิก" mode, enter an email and password (min 6 chars), submit
+5. Check email inbox for verification link, click it
+6. Return to `/auth`, log in with the same credentials
+7. After login, dashboard should load but show **no transactions** (empty state — demo data only shows when unauthenticated)
+8. Sidebar should show your email instead of "Demo Mode"
+9. Click logout — should return to demo mode with sample data
 
-### 2. Edge Function: `extract-slip`
+**What success looks like:**
+- Demo mode: 6 sample transactions visible, no login required
+- Auth: signup → email verification → login → empty dashboard (real DB)
+- Logout returns to demo mode
 
-- `supabase/functions/extract-slip/index.ts`
-- Accepts `{ image: base64, mimeType, source }` 
-- Provider pattern: `SlipExtractionProvider` interface with `LovableAIProvider` default
-- LovableAI provider sends image to Lovable AI Gateway (`google/gemini-2.5-flash`) with structured extraction prompt for Thai slips
-- Stores image in `slip-images` bucket, creates transaction as `pending_confirmation`, creates `transaction_images` record
-- Returns extracted data + transaction ID
-- Handles Buddhist year conversion, Thai date parsing, confidence scoring
+**Common failures:**
+- "Email not confirmed" error → check spam folder for verification email
+- Blank screen after login → check browser console for RLS or session errors
+- Demo data still showing after login → `useTransactions` may not be detecting the session
 
-### 3. Edge Function: `line-webhook`
+---
 
-- `supabase/functions/line-webhook/index.ts`
-- Validates LINE signature (HMAC-SHA256)
-- Handles image messages: fetch from LINE Content API → store → call extract-slip logic → reply with summary + Confirm/Edit/Ignore buttons
-- Handles postback: confirm/ignore actions
-- Handles text commands: monthly summary queries
-- Idempotent via `processed_messages` table
-- Duplicate detection via image hash
+## Step 2: Manual Upload → extract-slip → pending_confirmation
 
-### 4. Edge Function: `line-reply`
+**Secrets/config needed:** None (LOVABLE_API_KEY is already configured)
 
-- `supabase/functions/line-reply/index.ts`
-- Helper to send LINE reply/push messages with text + template buttons
+**How to test:**
+1. Log in with your verified account
+2. On the dashboard, use the "อัปโหลดสลิป" uploader or navigate to "/upload"
+3. Upload a Thai payment slip image (JPG or PNG)
+4. Wait for the spinner — the `extract-slip` edge function will:
+   - Store the image in the **private** `slip-images` bucket (not public)
+   - Send it to Gemini 2.5 Flash for extraction
+   - Create a `pending_confirmation` transaction
+5. After extraction, the transaction should appear in the dashboard table with status "รอยืนยัน"
+6. Click the eye icon to view transaction detail — verify extracted fields (amount, merchant, date, category, confidence)
+7. **Verify debug fields are present:** `raw_ocr_text`, `raw_provider_response`, `normalized_result_json`, and `image_hash`
+8. **Verify slip image is displayed via signed URL** (not a public URL) — check the image src in browser dev tools
+9. Click the edit icon to modify fields if needed
+10. Click the confirm (✓) button — status should change to "ยืนยันแล้ว"
+11. Click the ignore (✗) button on another pending transaction — status should change to "ข้าม"
 
-### 5. Edge Function: `export-excel`
+**What success looks like:**
+- Image uploads without error
+- AI extracts amount, merchant name, date, bank name from the slip
+- Transaction appears as `pending_confirmation` with correct Thai date
+- Debug fields (`raw_ocr_text`, `raw_provider_response`, `image_hash`) are populated
+- Slip image viewed only through signed URLs (private bucket)
+- Confirm/ignore/edit all work
+- Duplicate upload of same image returns a 409 conflict
 
-- `supabase/functions/export-excel/index.ts`
-- Query confirmed transactions by month
-- Generate XLSX using a lightweight approach (build CSV or use a Deno-compatible xlsx library)
-- Upload to storage, return signed URL
-- Create `export_jobs` record
+**Common failures:**
+- "LOVABLE_API_KEY not configured" → check secrets list (it's already there)
+- "AI extraction failed" → check edge function logs; may be rate limiting (429) or image too large
+- Transaction not appearing → RLS issue; ensure `user_id` matches `auth.uid()`
+- Duplicate detection too aggressive → different crops produce different hashes (expected)
+- Image displayed via public URL instead of signed URL → storage bucket misconfigured
 
-### 6. Edge Function: `sync-sheets`
+---
 
-- `supabase/functions/sync-sheets/index.ts`
-- Append confirmed transaction to Google Sheet via Sheets API v4
-- Uses service account JSON from secrets
-- Update `sheets_sync_status` on transaction
-- Dedup check before appending
+## Step 3: Configure LINE Webhook
 
-### 7. Edge Function: `sync-drive`
+**Secrets needed:**
 
-- `supabase/functions/sync-drive/index.ts`
-- Upload slip image to Google Drive folder
-- Create year/month subfolder structure
-- Rename file: `YYYY-MM-DD_amount_merchant_reference`
-- Save Drive URL back to transaction, update `drive_sync_status`
+| Secret | Where to get it |
+|--------|----------------|
+| `LINE_CHANNEL_SECRET` | LINE Developers Console → your Messaging API channel → Basic settings → Channel secret |
+| `LINE_CHANNEL_ACCESS_TOKEN` | LINE Developers Console → your channel → Messaging API tab → Channel access token (long-lived) → Issue |
 
-### 8. Database Migration: Add trigger for profile auto-creation
+**LINE Developers Console setup:**
+1. Go to https://developers.line.biz/console/
+2. Create a Provider (if not exists) → Create a Messaging API channel
+3. In Messaging API settings, set the Webhook URL to:
+   `https://jkkafjdyesntgxzpahtw.supabase.co/functions/v1/line-webhook`
+4. Enable "Use webhook"
+5. Disable "Auto-reply messages" and "Greeting messages"
 
-- Create a trigger on `auth.users` — actually, create a DB function + trigger to auto-insert into `public.users` on new auth user signup
+**How to test:**
+1. Add the LINE bot as a friend (scan QR code from LINE Developers Console)
+2. Send a Thai payment slip image to the bot
+3. Bot should reply with extracted summary + Confirm/Ignore buttons
+4. Tap "✅ ยืนยัน" → bot replies with confirmation
+5. Tap "❌ ข้าม" on another slip → bot replies with skip confirmation
+6. **Verify ownership validation:** postback confirm/ignore must validate that the `line_user_id` on the transaction matches the user performing the action — a different LINE user should not be able to confirm/ignore someone else's transaction
+7. Type "สรุปเดือนนี้" → bot replies with monthly spending summary
+8. Check the dashboard — LINE-ingested transactions should appear
 
-### 9. Wire Up Confirmation Flow
+**What success looks like:**
+- Bot receives image, extracts data, replies with summary within ~10 seconds
+- Confirm/Ignore buttons work and validate `line_user_id` ownership
+- Transaction shows `source: line` in dashboard
+- Duplicate slip sends warning message instead of re-processing
+- Monthly summary returns correct totals
 
-- Update `useConfirmTransaction` to also invoke `sync-sheets` and `sync-drive` asynchronously after marking confirmed
-- Or better: trigger syncs from within the confirm mutation's `onSuccess` callback
+**Common failures:**
+- "Invalid signature" (403) → channel secret is wrong or webhook URL has a typo
+- Bot doesn't respond at all → webhook URL not set correctly, or "Use webhook" is off
+- "LINE credentials not configured" → secrets not added yet
+- Ownership bypass → another LINE user can confirm someone else's transaction (security bug)
 
-## Technical Details
+---
 
-**Edge function CORS**: All functions called from frontend will include standard CORS headers.
+## Step 4: Configure Google Sheets Sync
 
-**Auth flow**: Simple email/password. No auto-confirm (users verify email).
+**Secrets needed:**
 
-**Lovable AI extraction**: Use `google/gemini-2.5-flash` via the AI gateway with a structured system prompt that:
+| Secret | Where to get it |
+|--------|----------------|
+| `GOOGLE_SERVICE_ACCOUNT_JSON` | Google Cloud Console → IAM & Admin → Service Accounts → Create key (JSON) — paste the entire JSON content |
+| `GOOGLE_SHEET_ID` | From the Google Sheet URL: `https://docs.google.com/spreadsheets/d/{THIS_PART}/edit` |
 
-- Identifies Thai payment slip fields
-- Converts Buddhist Era years (e.g., 2569 → 2026)
-- Returns JSON matching `SlipExtractionResult` interface
-- Includes confidence scoring
+**Setup steps:**
+1. Create a Google Cloud project (or use existing)
+2. Enable the Google Sheets API
+3. Create a Service Account → download JSON key
+4. Create a new Google Sheet
+5. **Share the sheet** with the service account email — give Editor access
+6. Add column headers in row 1: Date, Time, Type, Merchant, Amount, Currency, Category, Bank, Reference, Payer, Notes, TransactionID
 
-**LINE webhook secrets needed**: `LINE_CHANNEL_SECRET`, `LINE_CHANNEL_ACCESS_TOKEN`
-**Google secrets needed**: `GOOGLE_SERVICE_ACCOUNT_JSON`, `GOOGLE_SHEET_ID`, `GOOGLE_DRIVE_FOLDER_ID`
+**How to test:**
+1. Confirm a pending transaction in the dashboard (click ✓)
+2. **Confirmation should succeed immediately** regardless of Sheets sync result (non-blocking)
+3. Check the Google Sheet — a new row should appear within a few seconds
+4. Check the transaction detail — `sheets_sync_status` should show "synced"
+5. Try confirming the same transaction again — should not create a duplicate row
 
-**Excel generation**: Use `sheetjs` CDN import in Deno edge function for XLSX generation.
+**What success looks like:**
+- Transaction confirmation succeeds even if Sheets sync fails (non-blocking)
+- Row appended to Sheet1 with correct data
+- `sheets_sync_status` updates to `synced`
+- No duplicate rows on re-confirm
 
-## Build Order (single implementation pass)
+**Common failures:**
+- "Google Sheets not configured" → secrets not added; function returns `{skipped: true}` which is non-blocking
+- "Failed to get Google access token" → service account JSON is malformed or missing `private_key`
+- "Sheets API error: 403" → sheet not shared with the service account email
+- "Sheets API error: 404" → wrong `GOOGLE_SHEET_ID`
+- Confirmation blocked by sync failure → this is a bug; sync must be non-blocking
 
-1. DB migration: auto-create user profile trigger
-2. Auth pages + routing
-3. `extract-slip` edge function (core AI extraction)
-4. `line-webhook` + `line-reply` edge functions
-5. `export-excel` edge function
-6. `sync-sheets` edge function
-7. `sync-drive` edge function
-8. Update frontend to be auth-aware throughout
-9. Wire confirmation flow to trigger syncs
+---
 
-## Files to Create/Edit (~15 files)
+## Step 5: Configure Google Drive Sync
 
-**New files:**
+**Secrets needed:**
 
-- `src/pages/Auth.tsx`
-- `src/hooks/useAuth.ts`
-- `supabase/functions/extract-slip/index.ts`
-- `supabase/functions/line-webhook/index.ts`
-- `supabase/functions/line-reply/index.ts`
-- `supabase/functions/export-excel/index.ts`
-- `supabase/functions/sync-sheets/index.ts`
-- `supabase/functions/sync-drive/index.ts`
+| Secret | Where to get it |
+|--------|----------------|
+| `GOOGLE_DRIVE_FOLDER_ID` | Create a folder in Google Drive → get the ID from the URL: `https://drive.google.com/drive/folders/{THIS_PART}` |
 
-**Edited files:**
+**Setup steps:**
+1. Uses the **same service account** as Google Sheets (no new key needed)
+2. Enable the Google Drive API in Google Cloud Console
+3. Create a folder in Google Drive for slip storage
+4. **Share the folder** with the service account email — give Editor access
 
-- `src/App.tsx` — add auth route + protected routing
-- `src/components/layout/AppSidebar.tsx` — auth-aware sidebar
-- `src/hooks/useTransactions.ts` — pass user context
-- `src/components/dashboard/SlipUploader.tsx` — handle auth
-- New DB migration for user profile trigger
+**How to test:**
+1. Confirm a pending transaction that has a slip image
+2. **Confirmation should succeed immediately** regardless of Drive sync result (non-blocking)
+3. Check the Google Drive folder — should see a `YYYY/MM/` subfolder structure
+4. Inside the month folder, file should be named like `2026-03-28_110_merchant_ref.jpg`
+5. **Verify the slip image was downloaded from the private bucket via signed URL**, not a public URL
+6. Check the transaction detail — `drive_sync_status` should show "synced" and `drive_file_url` should have a Google Drive link
 
-**Secrets to request from user:**
+**What success looks like:**
+- Transaction confirmation succeeds even if Drive sync fails (non-blocking)
+- Image uploaded to correct year/month folder from private storage (signed URL)
+- File named with date, amount, merchant, reference
+- `drive_sync_status` = synced
+- `drive_file_url` links to the uploaded file
 
-- `LINE_CHANNEL_SECRET`
-- `LINE_CHANNEL_ACCESS_TOKEN`
-- `GOOGLE_SERVICE_ACCOUNT_JSON`
-- `GOOGLE_SHEET_ID`
-- `GOOGLE_DRIVE_FOLDER_ID`
+**Common failures:**
+- "Google Drive not configured" → `GOOGLE_DRIVE_FOLDER_ID` not set; non-blocking
+- "Failed to download image from storage" → `source_image_url` path is wrong or file doesn't exist in bucket
+- "Drive upload failed: 403" → folder not shared with service account
+- Confirmation blocked by sync failure → this is a bug; sync must be non-blocking
 
-All secrets will be requested only when the user is ready to configure each integration. The app works in demo mode without any secrets.  
-  
-This plan looks good. Before implementation, please make these adjustments:
+---
 
-1. Store slip images in a private Supabase Storage bucket only, and use signed URLs for display.
+## Step 6: Test Excel Export
 
-2. Keep responsibilities clean: image storage should happen in LINE/manual upload flow, while `extract-slip` should focus on extraction and normalized parsing only.
+**Secrets/config needed:** None
 
-3. Do not block confirmation on Google sync. Confirm first, mark sync statuses as pending, then run Sheets/Drive sync asynchronously.
+**How to test:**
+1. Ensure you have at least 1 confirmed transaction
+2. Navigate to `/export`
+3. Select a month from the dropdown
+4. Click "ดาวน์โหลด Excel"
+5. Browser should open/download an `.xlsx` file
+6. Open the file — should have two sheets:
+   - **Summary**: totals by category
+   - **Transactions**: all confirmed transactions for the month
 
-4. Store `raw_ocr_text`, `raw_provider_response`, `normalized_result_json`, and `image_hash` for debugging and provider migration.
+**What success looks like:**
+- File downloads successfully
+- Filename format: `personal-expenses-2026-03.xlsx`
+- Summary sheet shows category breakdown
+- Transactions sheet has all fields (date, amount, merchant, category, etc.)
+- Empty month returns a file with headers but no data rows
 
-5. Ensure LINE postback actions validate ownership: a transaction can only be confirmed/ignored/edited by the same LINE user who created it.
+**Common failures:**
+- "No month selected" → pick a month first
+- Download URL doesn't work → signed URL may have expired (60 min TTL); try again
+- File is corrupted → check edge function logs for SheetJS errors
+- No data in file → no confirmed transactions for the selected month
 
-6. Add clear failure handling for extraction errors, including saving an `extraction_failed` status and replying to the user appropriately.
+---
 
-7. Support transaction statuses at least: `pending_confirmation`, `confirmed`, `ignored`, and `extraction_failed`.
+## Recommended Testing Order
 
-8. Clarify auth and ownership model between Supabase auth users, public users table, and line_user_id, and keep RLS aligned with that model.
-
-If these adjustments are accepted, proceed with implementation.
+- **Step 1** — test now (no config needed)
+- **Step 2** — test now (no config needed)
+- **Step 3** — I'll request LINE secrets from you
+- **Step 4** — I'll request Google secrets from you
+- **Step 5** — I'll request the Drive folder ID
+- **Step 6** — test now (no config needed)
