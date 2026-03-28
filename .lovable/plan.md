@@ -1,211 +1,158 @@
-# SlipSync MVP — Personal Expense Tracker via LINE Bot
+SlipSync MVP — Full Implementation Plan
 
-## What We're Building
+## Current State
 
-A React + Supabase app that receives payment slip images (via LINE bot or manual upload), extracts expense data using Lovable AI, lets users confirm/edit, and exports to Google Sheets, Google Drive, and Excel. The OCR+AI extraction layer is provider-based and swappable.
+- **Database**: Schema fully deployed (transactions, users, transaction_images, export_jobs, processed_messages tables + enums + RLS + storage bucket)
+- **Frontend**: Dashboard, transaction detail/edit pages, filters, uploader components all exist with demo data
+- **Edge Functions**: None created yet
+- **Auth**: No login/signup pages
+- **Missing**: All 6 edge functions, authentication pages, auth-aware routing
 
-## Architecture
+## What Needs to Be Built
 
-┌─────────────┐     ┌──────────────────────┐     ┌─────────────────┐
-│  LINE Bot   │────▶│  Supabase Edge Fns   │────▶│  Supabase DB    │
-│  (webhook)  │     │  - line-webhook      │     │  (Postgres)     │
-└─────────────┘     │  - extract-slip      │     └─────────────────┘
-                    │  - sync-sheets       │     ┌─────────────────┐
-┌─────────────┐     │  - sync-drive        │────▶│  Supabase       │
-│  React SPA  │────▶│  - export-excel      │     │  Storage        │
-│  (Dashboard)│     │  - line-reply        │     └─────────────────┘
-└─────────────┘     └──────────────────────┘
-                           │
-                    ┌──────┴──────┐
-                    │ Lovable AI  │  (swappable provider)
-                    │ Gateway     │
-                    └─────────────┘
+### 1. Authentication (Login/Signup)
 
-## Implementation Phases
+- Create `src/pages/Auth.tsx` — email/password login + signup form
+- Create `src/hooks/useAuth.ts` — auth state hook using `onAuthStateChange`
+- Add auth-aware routing in `App.tsx` — redirect unauthenticated users to `/auth`
+- Update `AppSidebar.tsx` — show user info + logout button instead of "Demo Mode"
+- Auto-create profile row in `users` table on signup via database trigger
 
-### Phase 1: Foundation (Database + Types + Storage)
+### 2. Edge Function: `extract-slip`
 
-**Database migrations:**
+- `supabase/functions/extract-slip/index.ts`
+- Accepts `{ image: base64, mimeType, source }` 
+- Provider pattern: `SlipExtractionProvider` interface with `LovableAIProvider` default
+- LovableAI provider sends image to Lovable AI Gateway (`google/gemini-2.5-flash`) with structured extraction prompt for Thai slips
+- Stores image in `slip-images` bucket, creates transaction as `pending_confirmation`, creates `transaction_images` record
+- Returns extracted data + transaction ID
+- Handles Buddhist year conversion, Thai date parsing, confidence scoring
 
-- `users` table (id, line_user_id, display_name, created_at)
-- `transactions` table (all fields from spec including status enum, sync statuses)
-- `transaction_images` table
-- `export_jobs` table
-- RLS policies for authenticated access
-- Storage bucket `slip-images` for uploaded slip files
+### 3. Edge Function: `line-webhook`
 
-**Frontend types:**
+- `supabase/functions/line-webhook/index.ts`
+- Validates LINE signature (HMAC-SHA256)
+- Handles image messages: fetch from LINE Content API → store → call extract-slip logic → reply with summary + Confirm/Edit/Ignore buttons
+- Handles postback: confirm/ignore actions
+- Handles text commands: monthly summary queries
+- Idempotent via `processed_messages` table
+- Duplicate detection via image hash
 
-- TypeScript types mirroring all DB tables
-- Enum types for transaction_status, transaction_type, payment_status, category, sync_status
+### 4. Edge Function: `line-reply`
 
-### Phase 2: Swappable Extraction Service
+- `supabase/functions/line-reply/index.ts`
+- Helper to send LINE reply/push messages with text + template buttons
 
-**Edge function `extract-slip`:**
+### 5. Edge Function: `export-excel`
 
-- Accepts base64 image
-- Uses a provider pattern internally:
-  - `LovableAIProvider` (default) — sends image to Lovable AI Gateway with a structured prompt + tool calling to extract the 18+ fields (Thai date handling, Buddhist→Gregorian conversion, confidence scoring)
-  - Provider interface: `{ extract(imageBase64: string): Promise<SlipExtractionResult> }`
-  - Provider selected via env var `SLIP_EXTRACTION_PROVIDER` (default: `lovable-ai`)
-- Returns structured JSON matching the spec's field list
-- Stores raw OCR text alongside parsed result
+- `supabase/functions/export-excel/index.ts`
+- Query confirmed transactions by month
+- Generate XLSX using a lightweight approach (build CSV or use a Deno-compatible xlsx library)
+- Upload to storage, return signed URL
+- Create `export_jobs` record
 
-### Phase 3: LINE Bot Integration
+### 6. Edge Function: `sync-sheets`
 
-**Edge function `line-webhook`:**
+- `supabase/functions/sync-sheets/index.ts`
+- Append confirmed transaction to Google Sheet via Sheets API v4
+- Uses service account JSON from secrets
+- Update `sheets_sync_status` on transaction
+- Dedup check before appending
 
-- Validates LINE webhook signature
-- Handles image messages: fetches binary from LINE, stores in Supabase Storage, calls `extract-slip`, saves transaction as `pending_confirmation`, replies with Thai summary + Confirm/Edit/Ignore buttons (quick reply or postback)
-- Handles postback actions: confirm → mark confirmed + trigger syncs; ignore → mark ignored
-- Handles text commands: เดือนนี้ใช้ไปเท่าไร, สรุปรายจ่ายเดือนนี้, etc. → query DB and reply
-- Idempotent via message deduplication (store processed message IDs)
+### 7. Edge Function: `sync-drive`
 
-**Edge function `line-reply`:**
+- `supabase/functions/sync-drive/index.ts`
+- Upload slip image to Google Drive folder
+- Create year/month subfolder structure
+- Rename file: `YYYY-MM-DD_amount_merchant_reference`
+- Save Drive URL back to transaction, update `drive_sync_status`
 
-- Helper to send LINE reply messages (text + buttons)
+### 8. Database Migration: Add trigger for profile auto-creation
 
-### Phase 4: Dashboard UI
+- Create a trigger on `auth.users` — actually, create a DB function + trigger to auto-insert into `public.users` on new auth user signup
 
-**Pages:**
+### 9. Wire Up Confirmation Flow
 
-- `/` — Dashboard overview with cards (monthly total, yearly total, slip count) + transaction list
-- `/transactions/:id` — Detail view with slip image, extracted fields, raw OCR, confidence, sync status
-- `/transactions/:id/edit` — Edit form (also usable as LIFF page for LINE in-app editing)
-- `/settings` — Admin settings (LINE credentials, Google config, categories)
-
-**Components:**
-
-- `DashboardOverview` — summary cards using recharts
-- `TransactionTable` — sortable/filterable table with columns: date, type, merchant, amount, category, status, actions
-- `TransactionFilters` — month picker, category select, merchant search, status filter
-- `TransactionDetail` — image viewer + field display + sync status badges
-- `TransactionEditForm` — editable fields (amount, date, time, merchant, category, notes) with save/cancel/ignore
-- `SlipUploader` — manual upload for demo/testing (drag-and-drop image → extract)
-
-**Layout:**
-
-- Sidebar navigation with: Dashboard, Transactions, Export, Settings
-- Responsive design with mobile support
-
-### Phase 5: Demo Mode
-
-- Toggle in settings or auto-detect when no LINE credentials configured
-- 5-6 sample Thai payment slip mock results pre-loaded
-- Mock extraction that returns realistic JSON without calling AI
-- Allows full dashboard preview without any external integration
-
-### Phase 6: Export Features
-
-**Edge function `export-excel`:**
-
-- Query confirmed transactions by month or date range
-- Generate .xlsx with summary sheet + detailed transactions sheet
-- Return download URL from Supabase Storage
-- Filename: `personal-expenses-YYYY-MM.xlsx`
-
-**Edge function `sync-sheets`:**
-
-- Append confirmed transaction row to Google Sheet
-- Track sync_status per transaction (pending, synced, failed)
-- Deduplication check before appending
-- Retry on failure with error logging
-
-**Edge function `sync-drive`:**
-
-- Upload slip image to Google Drive
-- Organize in year/month folders
-- Rename: `YYYY-MM-DD_amount_merchant_reference`
-- Save Drive URL back to transaction record
-
-### Phase 7: Settings & Configuration
-
-- Admin auth via simple Supabase email/password
-- Settings page for LINE channel credentials (stored as secrets)
-- Google Sheets spreadsheet ID configuration
-- Google Drive folder ID configuration
-- Category management (view/edit default categories)
+- Update `useConfirmTransaction` to also invoke `sync-sheets` and `sync-drive` asynchronously after marking confirmed
+- Or better: trigger syncs from within the confirm mutation's `onSuccess` callback
 
 ## Technical Details
 
-**Extraction provider interface (in edge function):**
+**Edge function CORS**: All functions called from frontend will include standard CORS headers.
 
-```typescript
-interface SlipExtractionProvider {
-  extract(imageBase64: string, mimeType: string): Promise<SlipExtractionResult>;
-}
-// Implementations: LovableAIProvider, GoogleVisionProvider (future), etc.
-```
+**Auth flow**: Simple email/password. No auto-confirm (users verify email).
 
-**Lovable AI provider approach:**
+**Lovable AI extraction**: Use `google/gemini-2.5-flash` via the AI gateway with a structured system prompt that:
 
-- Send image as base64 in user message content (multimodal)
-- Use tool calling with a schema matching all 18 extraction fields
-- System prompt handles Thai-specific parsing rules (Buddhist year, masked names, Thai month abbreviations)
+- Identifies Thai payment slip fields
+- Converts Buddhist Era years (e.g., 2569 → 2026)
+- Returns JSON matching `SlipExtractionResult` interface
+- Includes confidence scoring
 
-**LINE webhook flow:**
+**LINE webhook secrets needed**: `LINE_CHANNEL_SECRET`, `LINE_CHANNEL_ACCESS_TOKEN`
+**Google secrets needed**: `GOOGLE_SERVICE_ACCOUNT_JSON`, `GOOGLE_SHEET_ID`, `GOOGLE_DRIVE_FOLDER_ID`
 
-- Verify `x-line-signature` header using channel secret HMAC-SHA256
-- Parse events array, handle `message` (type: image) and `postback` events
-- Use LINE Content API to fetch image binary
-- Store in `slip-images` bucket, get public URL
+**Excel generation**: Use `sheetjs` CDN import in Deno edge function for XLSX generation.
 
-**Google integrations:**
+## Build Order (single implementation pass)
 
-- Google Sheets: use service account JSON key, googleapis REST API
-- Google Drive: same service account, upload via multipart
-- Credentials stored as Supabase secrets
+1. DB migration: auto-create user profile trigger
+2. Auth pages + routing
+3. `extract-slip` edge function (core AI extraction)
+4. `line-webhook` + `line-reply` edge functions
+5. `export-excel` edge function
+6. `sync-sheets` edge function
+7. `sync-drive` edge function
+8. Update frontend to be auth-aware throughout
+9. Wire confirmation flow to trigger syncs
 
-**Required secrets (to be added by user):**
+## Files to Create/Edit (~15 files)
+
+**New files:**
+
+- `src/pages/Auth.tsx`
+- `src/hooks/useAuth.ts`
+- `supabase/functions/extract-slip/index.ts`
+- `supabase/functions/line-webhook/index.ts`
+- `supabase/functions/line-reply/index.ts`
+- `supabase/functions/export-excel/index.ts`
+- `supabase/functions/sync-sheets/index.ts`
+- `supabase/functions/sync-drive/index.ts`
+
+**Edited files:**
+
+- `src/App.tsx` — add auth route + protected routing
+- `src/components/layout/AppSidebar.tsx` — auth-aware sidebar
+- `src/hooks/useTransactions.ts` — pass user context
+- `src/components/dashboard/SlipUploader.tsx` — handle auth
+- New DB migration for user profile trigger
+
+**Secrets to request from user:**
 
 - `LINE_CHANNEL_SECRET`
 - `LINE_CHANNEL_ACCESS_TOKEN`
-- `GOOGLE_SERVICE_ACCOUNT_JSON` (for Sheets + Drive)
+- `GOOGLE_SERVICE_ACCOUNT_JSON`
 - `GOOGLE_SHEET_ID`
 - `GOOGLE_DRIVE_FOLDER_ID`
 
-**File count estimate:** ~25 new files (6 edge functions, 8-10 page/component files, types, hooks, utils, migrations)
+All secrets will be requested only when the user is ready to configure each integration. The app works in demo mode without any secrets.  
+  
+This plan looks good. Before implementation, please make these adjustments:
 
-## Build Order
+1. Store slip images in a private Supabase Storage bucket only, and use signed URLs for display.
 
-- Enable Lovable Cloud / Supabase connection
-- Database schema + types
-- Extract-slip edge function with Lovable AI provider
-- Dashboard UI with demo mode (manual upload + mock data)
-- LINE webhook + reply edge functions
-- Transaction confirm/edit/ignore flow
-- Excel export
-- Google Sheets sync
-- Google Drive sync
+2. Keep responsibilities clean: image storage should happen in LINE/manual upload flow, while `extract-slip` should focus on extraction and normalized parsing only.
 
-Settings page + admin auth
+3. Do not block confirmation on Google sync. Confirm first, mark sync statuses as pending, then run Sheets/Drive sync asynchronously.
 
-&nbsp;
+4. Store `raw_ocr_text`, `raw_provider_response`, `normalized_result_json`, and `image_hash` for debugging and provider migration.
 
-This architecture looks good. Please proceed, but make these adjustments:
+5. Ensure LINE postback actions validate ownership: a transaction can only be confirmed/ignored/edited by the same LINE user who created it.
 
-1. Store slip images in a private Supabase Storage bucket, not public. Use signed URLs or authenticated access only.
+6. Add clear failure handling for extraction errors, including saving an `extraction_failed` status and replying to the user appropriately.
 
-2. For Google Sheets and Google Drive MVP integration, use a service account only if the target sheet and folder are explicitly shared with that service account. Document this setup clearly.
+7. Support transaction statuses at least: `pending_confirmation`, `confirmed`, `ignored`, and `extraction_failed`.
 
-3. Do not block LINE webhook or confirm flow on Google sync. Mark syncs as pending and process Sheets/Drive asynchronously after confirmation.
+8. Clarify auth and ownership model between Supabase auth users, public users table, and line_user_id, and keep RLS aligned with that model.
 
-4. Store raw OCR text, raw provider response, and normalized parsed JSON for debugging.
-
-5. Add duplicate slip detection using image hash in addition to LINE message ID deduplication.
-
-6. Keep manual slip upload in the dashboard for testing before LINE is fully configured.
-
-Please keep the MVP focused on:
-
-- personal expense tracking
-
-- pending confirmation flow
-
-- confirm / edit / ignore
-
-- dashboard
-
-- LINE bot ingestion
-
-- swappable extraction provider
+If these adjustments are accepted, proceed with implementation.
