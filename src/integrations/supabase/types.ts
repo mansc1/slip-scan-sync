@@ -14,7 +14,235 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      export_jobs: {
+        Row: {
+          created_at: string
+          file_url: string | null
+          id: string
+          params: Json | null
+          status: string
+          type: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          file_url?: string | null
+          id?: string
+          params?: Json | null
+          status?: string
+          type?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          file_url?: string | null
+          id?: string
+          params?: Json | null
+          status?: string
+          type?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      processed_messages: {
+        Row: {
+          id: string
+          processed_at: string
+        }
+        Insert: {
+          id: string
+          processed_at?: string
+        }
+        Update: {
+          id?: string
+          processed_at?: string
+        }
+        Relationships: []
+      }
+      transaction_images: {
+        Row: {
+          created_at: string
+          file_path: string
+          id: string
+          mime_type: string | null
+          transaction_id: string
+        }
+        Insert: {
+          created_at?: string
+          file_path: string
+          id?: string
+          mime_type?: string | null
+          transaction_id: string
+        }
+        Update: {
+          created_at?: string
+          file_path?: string
+          id?: string
+          mime_type?: string | null
+          transaction_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "transaction_images_transaction_id_fkey"
+            columns: ["transaction_id"]
+            isOneToOne: false
+            referencedRelation: "transactions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      transactions: {
+        Row: {
+          amount: number | null
+          bank_name: string | null
+          category_final: Database["public"]["Enums"]["expense_category"] | null
+          category_guess: Database["public"]["Enums"]["expense_category"] | null
+          confidence_score: number | null
+          created_at: string
+          currency: string | null
+          date_display: string | null
+          drive_file_url: string | null
+          drive_sync_status: Database["public"]["Enums"]["sync_status"] | null
+          fee: number | null
+          id: string
+          image_hash: string | null
+          line_message_id: string | null
+          line_user_id: string | null
+          merchant_code: string | null
+          merchant_name: string | null
+          notes: string | null
+          parsed_result: Json | null
+          payer_name: string | null
+          payment_status: Database["public"]["Enums"]["payment_status"] | null
+          raw_ocr_text: string | null
+          raw_provider_response: Json | null
+          receiver_name: string | null
+          reference_no: string | null
+          sheets_sync_status: Database["public"]["Enums"]["sync_status"] | null
+          source: string | null
+          source_image_url: string | null
+          status: Database["public"]["Enums"]["transaction_status"]
+          time_display: string | null
+          transaction_code: string | null
+          transaction_datetime_iso: string | null
+          transaction_type:
+            | Database["public"]["Enums"]["transaction_type"]
+            | null
+          updated_at: string
+          user_id: string | null
+        }
+        Insert: {
+          amount?: number | null
+          bank_name?: string | null
+          category_final?:
+            | Database["public"]["Enums"]["expense_category"]
+            | null
+          category_guess?:
+            | Database["public"]["Enums"]["expense_category"]
+            | null
+          confidence_score?: number | null
+          created_at?: string
+          currency?: string | null
+          date_display?: string | null
+          drive_file_url?: string | null
+          drive_sync_status?: Database["public"]["Enums"]["sync_status"] | null
+          fee?: number | null
+          id?: string
+          image_hash?: string | null
+          line_message_id?: string | null
+          line_user_id?: string | null
+          merchant_code?: string | null
+          merchant_name?: string | null
+          notes?: string | null
+          parsed_result?: Json | null
+          payer_name?: string | null
+          payment_status?: Database["public"]["Enums"]["payment_status"] | null
+          raw_ocr_text?: string | null
+          raw_provider_response?: Json | null
+          receiver_name?: string | null
+          reference_no?: string | null
+          sheets_sync_status?: Database["public"]["Enums"]["sync_status"] | null
+          source?: string | null
+          source_image_url?: string | null
+          status?: Database["public"]["Enums"]["transaction_status"]
+          time_display?: string | null
+          transaction_code?: string | null
+          transaction_datetime_iso?: string | null
+          transaction_type?:
+            | Database["public"]["Enums"]["transaction_type"]
+            | null
+          updated_at?: string
+          user_id?: string | null
+        }
+        Update: {
+          amount?: number | null
+          bank_name?: string | null
+          category_final?:
+            | Database["public"]["Enums"]["expense_category"]
+            | null
+          category_guess?:
+            | Database["public"]["Enums"]["expense_category"]
+            | null
+          confidence_score?: number | null
+          created_at?: string
+          currency?: string | null
+          date_display?: string | null
+          drive_file_url?: string | null
+          drive_sync_status?: Database["public"]["Enums"]["sync_status"] | null
+          fee?: number | null
+          id?: string
+          image_hash?: string | null
+          line_message_id?: string | null
+          line_user_id?: string | null
+          merchant_code?: string | null
+          merchant_name?: string | null
+          notes?: string | null
+          parsed_result?: Json | null
+          payer_name?: string | null
+          payment_status?: Database["public"]["Enums"]["payment_status"] | null
+          raw_ocr_text?: string | null
+          raw_provider_response?: Json | null
+          receiver_name?: string | null
+          reference_no?: string | null
+          sheets_sync_status?: Database["public"]["Enums"]["sync_status"] | null
+          source?: string | null
+          source_image_url?: string | null
+          status?: Database["public"]["Enums"]["transaction_status"]
+          time_display?: string | null
+          transaction_code?: string | null
+          transaction_datetime_iso?: string | null
+          transaction_type?:
+            | Database["public"]["Enums"]["transaction_type"]
+            | null
+          updated_at?: string
+          user_id?: string | null
+        }
+        Relationships: []
+      }
+      users: {
+        Row: {
+          created_at: string
+          display_name: string | null
+          id: string
+          line_user_id: string | null
+          user_id: string | null
+        }
+        Insert: {
+          created_at?: string
+          display_name?: string | null
+          id?: string
+          line_user_id?: string | null
+          user_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          display_name?: string | null
+          id?: string
+          line_user_id?: string | null
+          user_id?: string | null
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
@@ -23,7 +251,32 @@ export type Database = {
       [_ in never]: never
     }
     Enums: {
-      [_ in never]: never
+      expense_category:
+        | "food"
+        | "transport"
+        | "shopping"
+        | "bills"
+        | "health"
+        | "entertainment"
+        | "education"
+        | "travel"
+        | "home"
+        | "family"
+        | "transfer"
+        | "other"
+      payment_status: "success" | "failed" | "pending" | "unknown"
+      sync_status: "pending" | "synced" | "failed" | "not_applicable"
+      transaction_status:
+        | "pending_confirmation"
+        | "confirmed"
+        | "ignored"
+        | "editing"
+      transaction_type:
+        | "transfer"
+        | "bill_payment"
+        | "merchant_payment"
+        | "qr_payment"
+        | "other"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -150,6 +403,36 @@ export type CompositeTypes<
 
 export const Constants = {
   public: {
-    Enums: {},
+    Enums: {
+      expense_category: [
+        "food",
+        "transport",
+        "shopping",
+        "bills",
+        "health",
+        "entertainment",
+        "education",
+        "travel",
+        "home",
+        "family",
+        "transfer",
+        "other",
+      ],
+      payment_status: ["success", "failed", "pending", "unknown"],
+      sync_status: ["pending", "synced", "failed", "not_applicable"],
+      transaction_status: [
+        "pending_confirmation",
+        "confirmed",
+        "ignored",
+        "editing",
+      ],
+      transaction_type: [
+        "transfer",
+        "bill_payment",
+        "merchant_payment",
+        "qr_payment",
+        "other",
+      ],
+    },
   },
 } as const
