@@ -116,4 +116,5 @@ export const STATUS_COLORS: Record<TransactionStatus, string> = {
   confirmed: 'success',
   ignored: 'muted',
   editing: 'accent',
+  extraction_failed: 'destructive',
 };

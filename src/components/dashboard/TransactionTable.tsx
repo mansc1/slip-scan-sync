@@ -19,6 +19,7 @@ function StatusBadge({ status }: { status: TransactionStatus }) {
     confirmed: { label: 'ยืนยันแล้ว', variant: 'default' },
     ignored: { label: 'ข้าม', variant: 'secondary' },
     editing: { label: 'แก้ไข', variant: 'outline' },
+    extraction_failed: { label: 'อ่านไม่ได้', variant: 'destructive' },
   };
   const { label, variant } = map[status];
   return <Badge variant={variant}>{label}</Badge>;

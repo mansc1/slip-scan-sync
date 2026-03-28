@@ -1,5 +1,5 @@
-import { LayoutDashboard, Receipt, Download, Settings, Upload } from 'lucide-react';
-import { useLocation, Link } from 'react-router-dom';
+import { LayoutDashboard, Download, Settings, Upload, LogOut, LogIn } from 'lucide-react';
+import { useLocation, Link, useNavigate } from 'react-router-dom';
 import {
   Sidebar,
   SidebarContent,
@@ -12,6 +12,8 @@ import {
   SidebarMenuItem,
   SidebarFooter,
 } from '@/components/ui/sidebar';
+import { Button } from '@/components/ui/button';
+import { useAuth } from '@/hooks/useAuth';
 
 const navItems = [
   { title: 'Dashboard', icon: LayoutDashboard, path: '/' },
@@ -22,6 +24,13 @@ const navItems = [
 
 export function AppSidebar() {
   const location = useLocation();
+  const navigate = useNavigate();
+  const { user, isAuthenticated, signOut } = useAuth();
+
+  const handleSignOut = async () => {
+    await signOut();
+    navigate('/auth');
+  };
 
   return (
     <Sidebar>
@@ -61,10 +70,40 @@ export function AppSidebar() {
       </SidebarContent>
 
       <SidebarFooter className="p-4">
-        <div className="rounded-lg bg-sidebar-accent p-3">
-          <p className="text-xs text-sidebar-accent-foreground/70">Demo Mode</p>
-          <p className="text-xs text-sidebar-accent-foreground/50 mt-1">Sign in to connect LINE bot</p>
-        </div>
+        {isAuthenticated ? (
+          <div className="space-y-2">
+            <div className="rounded-lg bg-sidebar-accent p-3">
+              <p className="text-xs text-sidebar-accent-foreground/90 font-medium truncate">
+                {user?.email}
+              </p>
+            </div>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="w-full justify-start text-sidebar-foreground/60 hover:text-sidebar-foreground"
+              onClick={handleSignOut}
+            >
+              <LogOut className="h-4 w-4 mr-2" />
+              ออกจากระบบ
+            </Button>
+          </div>
+        ) : (
+          <div className="space-y-2">
+            <div className="rounded-lg bg-sidebar-accent p-3">
+              <p className="text-xs text-sidebar-accent-foreground/70">Demo Mode</p>
+              <p className="text-xs text-sidebar-accent-foreground/50 mt-1">เข้าสู่ระบบเพื่อใช้งานจริง</p>
+            </div>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="w-full justify-start text-sidebar-foreground/60 hover:text-sidebar-foreground"
+              onClick={() => navigate('/auth')}
+            >
+              <LogIn className="h-4 w-4 mr-2" />
+              เข้าสู่ระบบ
+            </Button>
+          </div>
+        )}
       </SidebarFooter>
     </Sidebar>
   );
