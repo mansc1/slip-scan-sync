@@ -163,7 +163,7 @@ serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   try {
-    const { image, mimeType, source } = await req.json();
+    const { image, mimeType, source, lineUserId, lineMessageId } = await req.json();
     if (!image) {
       return new Response(JSON.stringify({ error: "image (base64) is required" }), {
         status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
