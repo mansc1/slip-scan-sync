@@ -90,8 +90,8 @@ export function AppSidebar() {
         ) : (
           <div className="space-y-2">
             <div className="rounded-lg bg-sidebar-accent p-3">
-              <p className="text-xs text-sidebar-accent-foreground/70">Demo Mode</p>
-              <p className="text-xs text-sidebar-accent-foreground/50 mt-1">เข้าสู่ระบบเพื่อใช้งานจริง</p>
+              <p className="text-xs text-sidebar-accent-foreground/70">Admin Dashboard</p>
+              <p className="text-xs text-sidebar-accent-foreground/50 mt-1">ผู้ใช้ทั่วไปใช้ LINE Bot</p>
             </div>
             <Button
               variant="ghost"
@@ -100,7 +100,7 @@ export function AppSidebar() {
               onClick={() => navigate('/auth')}
             >
               <LogIn className="h-4 w-4 mr-2" />
-              เข้าสู่ระบบ
+              Admin Login
             </Button>
           </div>
         )}
