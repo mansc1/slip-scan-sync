@@ -1,226 +1,118 @@
-# SlipSync — Integration & Testing Checklist
+# LINE-First Product Optimization
 
-This is a step-by-step testing guide. No code changes needed — this documents what to do, what to configure, and what success looks like at each stage.
+## Product Model Shift
 
----
+The current app treats email/password as the primary auth path and the dashboard as the main UI. The user wants to flip this:
 
-## Step 1: Verify Auth and Demo Mode
+- **LINE bot = primary interface** for end users
+- `**line_user_id` = primary identity** — no email signup required for regular use
+- **Dashboard = admin/testing tool** — kept but de-emphasized
+- **Email auth = optional** — only for dashboard access, not required for LINE users
 
-**Secrets/config needed:** None
+## What Changes
 
-**How to test:**
-1. Open the app at the preview URL
-2. Verify the dashboard loads with 6 demo transactions
-3. Click "เข้าสู่ระบบ" in the sidebar bottom — should navigate to `/auth`
-4. Switch to "สมัครสมาชิก" mode, enter an email and password (min 6 chars), submit
-5. Check email inbox for verification link, click it
-6. Return to `/auth`, log in with the same credentials
-7. After login, dashboard should load but show **no transactions** (empty state — demo data only shows when unauthenticated)
-8. Sidebar should show your email instead of "Demo Mode"
-9. Click logout — should return to demo mode with sample data
+### 1. Identity Model: LINE Users as First-Class Citizens
 
-**What success looks like:**
-- Demo mode: 6 sample transactions visible, no login required
-- Auth: signup → email verification → login → empty dashboard (real DB)
-- Logout returns to demo mode
+**Database migration:**
 
-**Common failures:**
-- "Email not confirmed" error → check spam folder for verification email
-- Blank screen after login → check browser console for RLS or session errors
-- Demo data still showing after login → `useTransactions` may not be detecting the session
+- The `users` table already has `line_user_id` column
+- Transactions already have `line_user_id` column
+- Need to adjust: LINE webhook should auto-create a `users` row keyed by `line_user_id` (without requiring `user_id` from Supabase Auth)
+- RLS stays the same for dashboard (Supabase Auth users). LINE transactions are created via service role by the webhook
 
----
+**No changes to Supabase Auth itself** — it remains for dashboard login only.
 
-## Step 2: Manual Upload → extract-slip → pending_confirmation
+### 2. Update `line-webhook` Edge Function
 
-**Secrets/config needed:** None (LOVABLE_API_KEY is already configured)
+Current flow already works well. Additions:
 
-**How to test:**
-1. Log in with your verified account
-2. On the dashboard, use the "อัปโหลดสลิป" uploader or navigate to "/upload"
-3. Upload a Thai payment slip image (JPG or PNG)
-4. Wait for the spinner — the `extract-slip` edge function will:
-   - Store the image in the **private** `slip-images` bucket (not public)
-   - Send it to Gemini 2.5 Flash for extraction
-   - Create a `pending_confirmation` transaction
-5. After extraction, the transaction should appear in the dashboard table with status "รอยืนยัน"
-6. Click the eye icon to view transaction detail — verify extracted fields (amount, merchant, date, category, confidence)
-7. **Verify debug fields are present:** `raw_ocr_text`, `raw_provider_response`, `normalized_result_json`, and `image_hash`
-8. **Verify slip image is displayed via signed URL** (not a public URL) — check the image src in browser dev tools
-9. Click the edit icon to modify fields if needed
-10. Click the confirm (✓) button — status should change to "ยืนยันแล้ว"
-11. Click the ignore (✗) button on another pending transaction — status should change to "ข้าม"
+- Auto-create `users` record with `line_user_id` on first interaction (upsert)
+- Store LINE display name via LINE Profile API (`GET https://api.line.me/v2/bot/profile/{userId}`)
+- Ownership validation already exists for postback actions (confirmed in current code)
 
-**What success looks like:**
-- Image uploads without error
-- AI extracts amount, merchant name, date, bank name from the slip
-- Transaction appears as `pending_confirmation` with correct Thai date
-- Debug fields (`raw_ocr_text`, `raw_provider_response`, `image_hash`) are populated
-- Slip image viewed only through signed URLs (private bucket)
-- Confirm/ignore/edit all work
-- Duplicate upload of same image returns a 409 conflict
+### 3. Update `extract-slip` Edge Function — Decouple from Auth
 
-**Common failures:**
-- "LOVABLE_API_KEY not configured" → check secrets list (it's already there)
-- "AI extraction failed" → check edge function logs; may be rate limiting (429) or image too large
-- Transaction not appearing → RLS issue; ensure `user_id` matches `auth.uid()`
-- Duplicate detection too aggressive → different crops produce different hashes (expected)
-- Image displayed via public URL instead of signed URL → storage bucket misconfigured
+Currently `extract-slip` tries to get `userId` from the JWT auth header. When called from `line-webhook`, it uses service role key. This already works, but:
 
----
+- Accept optional `lineUserId` parameter so the webhook can pass it through
+- Set `user_id` to null and `line_user_id` to the LINE user ID for LINE-sourced transactions
+- This means LINE transactions won't have a `user_id` (Supabase Auth ID) unless the user later links their account
 
-## Step 3: Configure LINE Webhook
+### 4. Frontend: De-emphasize Email Auth
 
-**Secrets needed:**
+- **Dashboard stays as-is** — it's an admin/testing tool
+- **Remove auth gate from dashboard** — keep demo mode as default (already works this way since `ProtectedRoute` allows unauthenticated access)
+- **Sidebar**: Change "Demo Mode" label to something like "Admin Login" to reflect the dashboard's secondary role
+- **Auth page**: Keep it but label it as "Admin / Dashboard Login"
+- **SlipUploader**: Allow upload without login (for testing) — currently works since extract-slip handles null userId
 
-| Secret | Where to get it |
-|--------|----------------|
-| `LINE_CHANNEL_SECRET` | LINE Developers Console → your Messaging API channel → Basic settings → Channel secret |
-| `LINE_CHANNEL_ACCESS_TOKEN` | LINE Developers Console → your channel → Messaging API tab → Channel access token (long-lived) → Issue |
+### 5. LINE Webhook Enhancements for Mobile-First UX
 
-**LINE Developers Console setup:**
-1. Go to https://developers.line.biz/console/
-2. Create a Provider (if not exists) → Create a Messaging API channel
-3. In Messaging API settings, set the Webhook URL to:
-   `https://jkkafjdyesntgxzpahtw.supabase.co/functions/v1/line-webhook`
-4. Enable "Use webhook"
-5. Disable "Auto-reply messages" and "Greeting messages"
+- Fetch LINE user profile on first message to get display name
+- Improve reply messages for mobile readability (shorter text, clear action buttons)
+- Add a "📊 ดูสรุป" (view summary) quick action
+- Ensure postback buttons use clear Thai labels
 
-**How to test:**
-1. Add the LINE bot as a friend (scan QR code from LINE Developers Console)
-2. Send a Thai payment slip image to the bot
-3. Bot should reply with extracted summary + Confirm/Ignore buttons
-4. Tap "✅ ยืนยัน" → bot replies with confirmation
-5. Tap "❌ ข้าม" on another slip → bot replies with skip confirmation
-6. **Verify ownership validation:** postback confirm/ignore must validate that the `line_user_id` on the transaction matches the user performing the action — a different LINE user should not be able to confirm/ignore someone else's transaction
-7. Type "สรุปเดือนนี้" → bot replies with monthly spending summary
-8. Check the dashboard — LINE-ingested transactions should appear
+### 6. Optional Future: Account Linking
 
-**What success looks like:**
-- Bot receives image, extracts data, replies with summary within ~10 seconds
-- Confirm/Ignore buttons work and validate `line_user_id` ownership
-- Transaction shows `source: line` in dashboard
-- Duplicate slip sends warning message instead of re-processing
-- Monthly summary returns correct totals
+Add a mechanism for LINE users to optionally link to a Supabase Auth account (for dashboard access). This is NOT part of this change — just noting it as a future path.
 
-**Common failures:**
-- "Invalid signature" (403) → channel secret is wrong or webhook URL has a typo
-- Bot doesn't respond at all → webhook URL not set correctly, or "Use webhook" is off
-- "LINE credentials not configured" → secrets not added yet
-- Ownership bypass → another LINE user can confirm someone else's transaction (security bug)
+## Files to Change
 
----
 
-## Step 4: Configure Google Sheets Sync
+| File                                       | Change                                                        |
+| ------------------------------------------ | ------------------------------------------------------------- |
+| `supabase/functions/line-webhook/index.ts` | Auto-create `users` row with LINE profile, fetch display name |
+| `supabase/functions/extract-slip/index.ts` | Accept `lineUserId` param, set on transaction                 |
+| `src/components/layout/AppSidebar.tsx`     | Change "Demo Mode" → "Admin Login", de-emphasize auth         |
+| `src/pages/Auth.tsx`                       | Update copy to "Admin / Dashboard Login"                      |
+| `src/App.tsx`                              | No change needed (already allows unauthenticated access)      |
+| New migration                              | Update `users` table: make `user_id` nullable if not already  |
 
-**Secrets needed:**
 
-| Secret | Where to get it |
-|--------|----------------|
-| `GOOGLE_SERVICE_ACCOUNT_JSON` | Google Cloud Console → IAM & Admin → Service Accounts → Create key (JSON) — paste the entire JSON content |
-| `GOOGLE_SHEET_ID` | From the Google Sheet URL: `https://docs.google.com/spreadsheets/d/{THIS_PART}/edit` |
+## Database Migration
 
-**Setup steps:**
-1. Create a Google Cloud project (or use existing)
-2. Enable the Google Sheets API
-3. Create a Service Account → download JSON key
-4. Create a new Google Sheet
-5. **Share the sheet** with the service account email — give Editor access
-6. Add column headers in row 1: Date, Time, Type, Merchant, Amount, Currency, Category, Bank, Reference, Payer, Notes, TransactionID
+```sql
+-- Make user_id nullable on users table (LINE users won't have one)
+ALTER TABLE public.users ALTER COLUMN user_id DROP NOT NULL;
 
-**How to test:**
-1. Confirm a pending transaction in the dashboard (click ✓)
-2. **Confirmation should succeed immediately** regardless of Sheets sync result (non-blocking)
-3. Check the Google Sheet — a new row should appear within a few seconds
-4. Check the transaction detail — `sheets_sync_status` should show "synced"
-5. Try confirming the same transaction again — should not create a duplicate row
+-- Add unique constraint on line_user_id for upsert
+CREATE UNIQUE INDEX IF NOT EXISTS users_line_user_id_unique 
+ON public.users (line_user_id) WHERE line_user_id IS NOT NULL;
+```
 
-**What success looks like:**
-- Transaction confirmation succeeds even if Sheets sync fails (non-blocking)
-- Row appended to Sheet1 with correct data
-- `sheets_sync_status` updates to `synced`
-- No duplicate rows on re-confirm
+## No Breaking Changes
 
-**Common failures:**
-- "Google Sheets not configured" → secrets not added; function returns `{skipped: true}` which is non-blocking
-- "Failed to get Google access token" → service account JSON is malformed or missing `private_key`
-- "Sheets API error: 403" → sheet not shared with the service account email
-- "Sheets API error: 404" → wrong `GOOGLE_SHEET_ID`
-- Confirmation blocked by sync failure → this is a bug; sync must be non-blocking
+- Dashboard continues to work exactly as before for email-authenticated users
+- LINE webhook flow continues to work but now also creates user records
+- Manual upload continues to work for testing
+- All existing RLS policies remain valid  
 
----
 
-## Step 5: Configure Google Drive Sync
+This direction looks right, but please make these clarifications before implementation:
 
-**Secrets needed:**
+1. Clarify the identity model explicitly:
 
-| Secret | Where to get it |
-|--------|----------------|
-| `GOOGLE_DRIVE_FOLDER_ID` | Create a folder in Google Drive → get the ID from the URL: `https://drive.google.com/drive/folders/{THIS_PART}` |
+   - `users.id` should remain the internal primary key
 
-**Setup steps:**
-1. Uses the **same service account** as Google Sheets (no new key needed)
-2. Enable the Google Drive API in Google Cloud Console
-3. Create a folder in Google Drive for slip storage
-4. **Share the folder** with the service account email — give Editor access
+   - if there is a Supabase Auth foreign key, name it clearly as `auth_user_id` and allow that to be nullable
 
-**How to test:**
-1. Confirm a pending transaction that has a slip image
-2. **Confirmation should succeed immediately** regardless of Drive sync result (non-blocking)
-3. Check the Google Drive folder — should see a `YYYY/MM/` subfolder structure
-4. Inside the month folder, file should be named like `2026-03-28_110_merchant_ref.jpg`
-5. **Verify the slip image was downloaded from the private bucket via signed URL**, not a public URL
-6. Check the transaction detail — `drive_sync_status` should show "synced" and `drive_file_url` should have a Google Drive link
+   - `line_user_id` should be a separate unique identity field for LINE users
 
-**What success looks like:**
-- Transaction confirmation succeeds even if Drive sync fails (non-blocking)
-- Image uploaded to correct year/month folder from private storage (signed URL)
-- File named with date, amount, merchant, reference
-- `drive_sync_status` = synced
-- `drive_file_url` links to the uploaded file
+2. Do not overload `user_id` with multiple meanings. Keep internal user ID, auth user ID, and line_user_id clearly separated.
 
-**Common failures:**
-- "Google Drive not configured" → `GOOGLE_DRIVE_FOLDER_ID` not set; non-blocking
-- "Failed to download image from storage" → `source_image_url` path is wrong or file doesn't exist in bucket
-- "Drive upload failed: 403" → folder not shared with service account
-- Confirmation blocked by sync failure → this is a bug; sync must be non-blocking
+3. For LINE-ingested transactions, require `line_user_id` as the owner field. For dashboard/manual uploads, use `auth_user_id` when available. Do not create real transactions without a clear owner identity.
 
----
+4. Clarify the dashboard access model:
 
-## Step 6: Test Excel Export
+   - either single-admin can view all transactions
 
-**Secrets/config needed:** None
+   - or authenticated users can only view transactions tied to their own identity
 
-**How to test:**
-1. Ensure you have at least 1 confirmed transaction
-2. Navigate to `/export`
-3. Select a month from the dropdown
-4. Click "ดาวน์โหลด Excel"
-5. Browser should open/download an `.xlsx` file
-6. Open the file — should have two sheets:
-   - **Summary**: totals by category
-   - **Transactions**: all confirmed transactions for the month
+   Keep RLS aligned with this choice.
 
-**What success looks like:**
-- File downloads successfully
-- Filename format: `personal-expenses-2026-03.xlsx`
-- Summary sheet shows category breakdown
-- Transactions sheet has all fields (date, amount, merchant, category, etc.)
-- Empty month returns a file with headers but no data rows
+5. Ensure all postback confirm/edit/ignore actions validate the same `line_user_id` as the transaction owner.
 
-**Common failures:**
-- "No month selected" → pick a month first
-- Download URL doesn't work → signed URL may have expired (60 min TTL); try again
-- File is corrupted → check edge function logs for SheetJS errors
-- No data in file → no confirmed transactions for the selected month
+6. Keep `source` explicit for all transactions, such as `line`, `manual_upload`, and `demo`.
 
----
-
-## Recommended Testing Order
-
-- **Step 1** — test now (no config needed)
-- **Step 2** — test now (no config needed)
-- **Step 3** — I'll request LINE secrets from you
-- **Step 4** — I'll request Google secrets from you
-- **Step 5** — I'll request the Drive folder ID
-- **Step 6** — test now (no config needed)
+7. Since the product is now LINE-first, prepare the architecture for LIFF / LINE-authenticated confirm-edit pages, even if the first version still uses simple postback actions.
