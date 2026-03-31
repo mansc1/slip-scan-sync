@@ -163,7 +163,7 @@ serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   try {
-    const { image, mimeType, source } = await req.json();
+    const { image, mimeType, source, lineUserId, lineMessageId } = await req.json();
     if (!image) {
       return new Response(JSON.stringify({ error: "image (base64) is required" }), {
         status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -184,9 +184,10 @@ serve(async (req) => {
       userId = user?.id || null;
     }
 
-    // Store image in slip-images bucket
+    // Store image in slip-images bucket (organized by owner)
     const fileExt = mimeType === "image/png" ? "png" : "jpg";
-    const filePath = `${userId || "anonymous"}/${crypto.randomUUID()}.${fileExt}`;
+    const ownerFolder = lineUserId ? `line/${lineUserId}` : (userId || "anonymous");
+    const filePath = `${ownerFolder}/${crypto.randomUUID()}.${fileExt}`;
     const imageBuffer = Uint8Array.from(atob(image), c => c.charCodeAt(0));
 
     const { error: uploadError } = await supabase.storage
@@ -241,11 +242,13 @@ serve(async (req) => {
       };
     }
 
-    // Create transaction
+    // Create transaction with clear owner identity
     const { data: txData, error: txError } = await supabase
       .from("transactions")
       .insert({
-        user_id: userId,
+        user_id: userId || null,
+        line_user_id: lineUserId || null,
+        line_message_id: lineMessageId || null,
         status: extractionFailed ? "extraction_failed" : "pending_confirmation",
         transaction_type: extractionResult.transaction_type,
         payment_status: extractionResult.payment_status,

@@ -45,9 +45,9 @@ export default function Auth() {
           <div className="mx-auto mb-2 flex h-12 w-12 items-center justify-center rounded-xl bg-primary text-primary-foreground font-bold text-xl">
             S
           </div>
-          <CardTitle className="text-xl">SlipSync</CardTitle>
+          <CardTitle className="text-xl">SlipSync Admin</CardTitle>
           <CardDescription>
-            {isLogin ? 'เข้าสู่ระบบเพื่อจัดการรายจ่าย' : 'สร้างบัญชีใหม่'}
+            {isLogin ? 'เข้าสู่ระบบ Dashboard สำหรับผู้ดูแล' : 'สร้างบัญชีผู้ดูแลใหม่'}
           </CardDescription>
         </CardHeader>
         <CardContent>

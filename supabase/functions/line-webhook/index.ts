@@ -35,6 +35,36 @@ async function replyToLine(replyToken: string, messages: any[], accessToken: str
   });
 }
 
+async function fetchLineProfile(userId: string, accessToken: string): Promise<{ displayName: string; pictureUrl?: string } | null> {
+  try {
+    const res = await fetch(`https://api.line.me/v2/bot/profile/${userId}`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    return { displayName: data.displayName, pictureUrl: data.pictureUrl };
+  } catch {
+    return null;
+  }
+}
+
+async function ensureLineUser(
+  supabase: any,
+  lineUserId: string,
+  accessToken: string
+): Promise<void> {
+  // Upsert user record keyed by line_user_id
+  const profile = await fetchLineProfile(lineUserId, accessToken);
+  const displayName = profile?.displayName || lineUserId;
+
+  await supabase
+    .from("users")
+    .upsert(
+      { line_user_id: lineUserId, display_name: displayName },
+      { onConflict: "line_user_id" }
+    );
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
@@ -74,23 +104,20 @@ serve(async (req) => {
       const lineUserId = event.source?.userId;
       const replyToken = event.replyToken;
 
+      // Auto-create/update user record on every interaction
+      if (lineUserId) {
+        await ensureLineUser(supabase, lineUserId, accessToken);
+      }
+
       if (event.type === "message" && event.message?.type === "image") {
         try {
-          // Fetch image from LINE
           const imageData = await fetchLineImage(event.message.id, accessToken);
 
-          // Upload to storage
-          const filePath = `line/${lineUserId}/${crypto.randomUUID()}.jpg`;
-          await supabase.storage.from("slip-images").upload(filePath, imageData, {
-            contentType: "image/jpeg",
-          });
-
-          // Compute hash
+          // Compute hash for duplicate check
           const hashBuffer = await crypto.subtle.digest("SHA-256", imageData);
           const imageHash = Array.from(new Uint8Array(hashBuffer))
             .map(b => b.toString(16).padStart(2, "0")).join("");
 
-          // Duplicate check
           const { data: dupCheck } = await supabase
             .from("transactions")
             .select("id, amount, merchant_name")
@@ -100,16 +127,14 @@ serve(async (req) => {
           if (dupCheck && dupCheck.length > 0) {
             await replyToLine(replyToken, [{
               type: "text",
-              text: `⚠️ สลิปนี้เคยบันทึกแล้ว\nรายการ: ${dupCheck[0].merchant_name || "N/A"}\nจำนวน: ${dupCheck[0].amount || "N/A"} บาท`,
+              text: `⚠️ สลิปนี้เคยบันทึกแล้ว\n🏪 ${dupCheck[0].merchant_name || "-"}\n💰 ${dupCheck[0].amount?.toLocaleString() || "-"} บาท`,
             }], accessToken);
             continue;
           }
 
-          // Call extract-slip logic inline (same Lovable AI)
+          // Call extract-slip with lineUserId context
           const base64 = btoa(String.fromCharCode(...imageData));
-          const lovableKey = Deno.env.get("LOVABLE_API_KEY")!;
 
-          // Use the extract-slip function via internal call
           const extractRes = await fetch(`${supabaseUrl}/functions/v1/extract-slip`, {
             method: "POST",
             headers: {
@@ -130,18 +155,9 @@ serve(async (req) => {
           if (extractData.extraction_failed) {
             await replyToLine(replyToken, [{
               type: "text",
-              text: `❌ ไม่สามารถอ่านสลิปได้\n${extractData.error_message || "กรุณาลองส่งรูปใหม่ที่ชัดขึ้น"}`,
+              text: `❌ อ่านสลิปไม่ได้\n${extractData.error_message || "ลองส่งรูปใหม่ที่ชัดขึ้น"}`,
             }], accessToken);
             continue;
-          }
-
-          // Update with LINE context
-          if (extractData.transaction_id) {
-            await supabase.from("transactions").update({
-              line_user_id: lineUserId,
-              line_message_id: event.message.id,
-              source: "line",
-            }).eq("id", extractData.transaction_id);
           }
 
           const ext = extractData.extraction;
@@ -152,7 +168,6 @@ serve(async (req) => {
             ext.bank_name ? `🏦 ${ext.bank_name}` : null,
             ext.date_display ? `📅 ${ext.date_display} ${ext.time_display || ""}` : null,
             ext.category_guess ? `📁 ${ext.category_guess}` : null,
-            `\n✅ ยืนยัน | ✏️ แก้ไข | ❌ ข้าม`,
           ].filter(Boolean).join("\n");
 
           await replyToLine(replyToken, [
@@ -174,7 +189,7 @@ serve(async (req) => {
           console.error("Image processing error:", imgErr);
           await replyToLine(replyToken, [{
             type: "text",
-            text: `❌ เกิดข้อผิดพลาด: ${imgErr.message || "ไม่สามารถประมวลผลได้"}`,
+            text: `❌ เกิดข้อผิดพลาด กรุณาลองใหม่`,
           }], accessToken);
         }
       } else if (event.type === "postback") {
@@ -186,7 +201,7 @@ serve(async (req) => {
           // Ownership validation: ensure this LINE user owns the transaction
           const { data: txCheck } = await supabase
             .from("transactions")
-            .select("id, line_user_id, amount, merchant_name")
+            .select("id, line_user_id, amount, merchant_name, category_guess")
             .eq("id", txId)
             .single();
 
@@ -200,12 +215,12 @@ serve(async (req) => {
           if (action === "confirm") {
             await supabase.from("transactions").update({
               status: "confirmed",
-              category_final: (await supabase.from("transactions").select("category_guess").eq("id", txId).single()).data?.category_guess,
+              category_final: txCheck.category_guess,
               sheets_sync_status: "pending",
               drive_sync_status: "pending",
             }).eq("id", txId);
 
-            // Trigger async syncs (fire and forget)
+            // Trigger async syncs (fire and forget, non-blocking)
             fetch(`${supabaseUrl}/functions/v1/sync-sheets`, {
               method: "POST",
               headers: { "Content-Type": "application/json", Authorization: `Bearer ${serviceKey}` },
@@ -220,7 +235,7 @@ serve(async (req) => {
 
             await replyToLine(replyToken, [{
               type: "text",
-              text: `✅ ยืนยันแล้ว\n${txCheck.merchant_name || ""} ${txCheck.amount?.toLocaleString() || ""} บาท`,
+              text: `✅ บันทึกแล้ว\n${txCheck.merchant_name || ""} ${txCheck.amount?.toLocaleString() || ""} บาท`,
             }], accessToken);
           } else {
             await supabase.from("transactions").update({ status: "ignored" }).eq("id", txId);
@@ -243,18 +258,30 @@ serve(async (req) => {
             .eq("line_user_id", lineUserId)
             .gte("created_at", startOfMonth);
 
-          const total = (monthTxs || []).reduce((sum, t) => sum + (t.amount || 0), 0);
+          const total = (monthTxs || []).reduce((sum: number, t: any) => sum + (t.amount || 0), 0);
           const count = monthTxs?.length || 0;
+
+          // Category breakdown
+          const byCategory: Record<string, number> = {};
+          for (const t of monthTxs || []) {
+            const cat = t.category_guess || "other";
+            byCategory[cat] = (byCategory[cat] || 0) + (t.amount || 0);
+          }
+          const breakdown = Object.entries(byCategory)
+            .sort((a, b) => b[1] - a[1])
+            .slice(0, 5)
+            .map(([cat, amt]) => `  ${cat}: ${amt.toLocaleString()}`)
+            .join("\n");
 
           const monthName = now.toLocaleDateString("th-TH", { month: "long", year: "numeric" });
           await replyToLine(replyToken, [{
             type: "text",
-            text: `📊 สรุปเดือน${monthName}\n\n💰 รวม: ${total.toLocaleString()} บาท\n📝 ${count} รายการ`,
+            text: `📊 สรุปเดือน${monthName}\n\n💰 รวม: ${total.toLocaleString()} บาท\n📝 ${count} รายการ${breakdown ? `\n\n📁 ตามหมวด:\n${breakdown}` : ""}`,
           }], accessToken);
         } else {
           await replyToLine(replyToken, [{
             type: "text",
-            text: "📸 ส่งรูปสลิปมาเพื่อบันทึกรายจ่าย\n📊 พิมพ์ 'สรุปเดือนนี้' เพื่อดูสรุป",
+            text: "📸 ส่งรูปสลิปมาบันทึกรายจ่าย\n📊 พิมพ์ 'สรุป' ดูยอดเดือนนี้",
           }], accessToken);
         }
       }
