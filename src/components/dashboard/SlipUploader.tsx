@@ -81,7 +81,18 @@ export function SlipUploader({ onExtracted }: SlipUploaderProps) {
           onDragLeave={() => setDragging(false)}
           onDrop={handleDrop}
         >
-          {loading ? (
+          {!isAuthenticated ? (
+            <div className="flex flex-col items-center gap-3 py-4">
+              <LogIn className="h-10 w-10 text-muted-foreground/50" />
+              <div className="text-center">
+                <p className="text-sm font-medium">เข้าสู่ระบบเพื่ออัปโหลดสลิปจริง</p>
+                <p className="text-xs text-muted-foreground mb-3">Demo mode แสดงข้อมูลตัวอย่างเท่านั้น</p>
+                <Button variant="outline" size="sm" onClick={() => navigate('/auth')}>
+                  เข้าสู่ระบบ Admin
+                </Button>
+              </div>
+            </div>
+          ) : loading ? (
             <div className="flex flex-col items-center gap-3">
               <Loader2 className="h-10 w-10 animate-spin text-primary" />
               <p className="text-sm text-muted-foreground">กำลังสกัดข้อมูลจากสลิป...</p>
