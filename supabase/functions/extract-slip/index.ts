@@ -243,6 +243,7 @@ serve(async (req) => {
     }
 
     // Create transaction with clear owner identity
+    console.log("Inserting transaction:", { userId, lineUserId, source: source || "manual_upload", extractionFailed });
     const { data: txData, error: txError } = await supabase
       .from("transactions")
       .insert({
@@ -280,18 +281,24 @@ serve(async (req) => {
       .select()
       .single();
 
-    if (txError) throw txError;
+    if (txError) {
+      console.error("Transaction insert failed:", txError);
+      throw txError;
+    }
+    console.log("Transaction created:", { id: txData.id, status: txData.status, source: txData.source });
 
     // Create transaction_images record
-    await supabase.from("transaction_images").insert({
+    const { error: imgError } = await supabase.from("transaction_images").insert({
       transaction_id: txData.id,
       file_path: filePath,
       mime_type: mimeType || "image/jpeg",
     });
+    if (imgError) console.error("Image record insert failed:", imgError);
 
     return new Response(JSON.stringify({
       transaction_id: txData.id,
       status: txData.status,
+      source: txData.source,
       extraction: extractionResult,
       extraction_failed: extractionFailed,
       error_message: extractionFailed ? errorMessage : null,

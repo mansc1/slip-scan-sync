@@ -70,7 +70,9 @@ const Index = () => {
           <div>
             <SlipUploader
               onExtracted={(result) => {
-                toast.success('สกัดข้อมูลจากสลิปสำเร็จ');
+                console.log('Extract-slip response:', result);
+                toast.success(`สกัดข้อมูลสำเร็จ (ID: ${result?.transaction_id?.slice(0, 8)}… status: ${result?.status}, source: manual_upload)`);
+                queryClient.invalidateQueries({ queryKey: ['transactions'] });
               }}
             />
           </div>

@@ -28,10 +28,17 @@ export function SlipUploader({ onExtracted }: SlipUploaderProps) {
     try {
       const base64 = await fileToBase64(file);
       const { data, error } = await supabase.functions.invoke('extract-slip', {
-        body: { image: base64, mimeType: file.type, source: 'manual' },
+        body: { image: base64, mimeType: file.type, source: 'manual_upload' },
       });
 
-      if (error) throw error;
+      if (error) {
+        // Check for duplicate (409)
+        if (data?.existing_transaction_id) {
+          toast.error('สลิปซ้ำ — รายการนี้มีอยู่แล้ว');
+          return;
+        }
+        throw error;
+      }
       toast.success('สกัดข้อมูลสำเร็จ!');
       onExtracted?.(data);
     } catch (err: any) {
