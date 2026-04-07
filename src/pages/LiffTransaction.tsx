@@ -1,0 +1,344 @@
+import { useState, useEffect } from 'react';
+import { useParams } from 'react-router-dom';
+import { useLiff } from '@/hooks/useLiff';
+import { supabase } from '@/integrations/supabase/client';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Textarea } from '@/components/ui/textarea';
+import { EXPENSE_CATEGORIES, type ExpenseCategory } from '@/types';
+import { Check, X, Pencil, Loader2, AlertTriangle, ShieldX, CheckCircle2 } from 'lucide-react';
+
+type ViewState = 'loading' | 'login_required' | 'not_found' | 'no_permission' | 'already_finalized' | 'ready' | 'editing' | 'success' | 'error';
+
+export default function LiffTransaction() {
+  const { id } = useParams<{ id: string }>();
+  const { isReady, isLoggedIn, lineUserId, displayName, pictureUrl, idToken, error: liffError, login } = useLiff();
+
+  const [viewState, setViewState] = useState<ViewState>('loading');
+  const [transaction, setTransaction] = useState<any>(null);
+  const [finalStatus, setFinalStatus] = useState<string>('');
+  const [errorMsg, setErrorMsg] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  // Edit form state
+  const [editAmount, setEditAmount] = useState('');
+  const [editMerchant, setEditMerchant] = useState('');
+  const [editCategory, setEditCategory] = useState<ExpenseCategory>('other');
+  const [editDate, setEditDate] = useState('');
+  const [editTime, setEditTime] = useState('');
+  const [editNotes, setEditNotes] = useState('');
+
+  useEffect(() => {
+    if (!isReady) return;
+
+    if (liffError) {
+      setErrorMsg(liffError);
+      setViewState('error');
+      return;
+    }
+
+    if (!isLoggedIn || !idToken) {
+      setViewState('login_required');
+      return;
+    }
+
+    fetchTransaction();
+  }, [isReady, isLoggedIn, idToken, id]);
+
+  async function fetchTransaction() {
+    if (!id || !idToken) return;
+
+    try {
+      const { data, error } = await supabase.functions.invoke('liff-transaction', {
+        body: { transactionId: id, idToken },
+      });
+
+      if (error) {
+        setErrorMsg('ไม่สามารถโหลดรายการได้');
+        setViewState('error');
+        return;
+      }
+
+      if (data.error) {
+        if (data.error.includes('not found')) setViewState('not_found');
+        else if (data.error.includes('สิทธิ์')) setViewState('no_permission');
+        else { setErrorMsg(data.error); setViewState('error'); }
+        return;
+      }
+
+      const tx = data.transaction;
+      setTransaction(tx);
+
+      if (tx.status === 'confirmed' || tx.status === 'ignored') {
+        setFinalStatus(tx.status);
+        setViewState('already_finalized');
+      } else {
+        populateEditForm(tx);
+        setViewState('ready');
+      }
+    } catch (e: any) {
+      setErrorMsg(e.message);
+      setViewState('error');
+    }
+  }
+
+  function populateEditForm(tx: any) {
+    setEditAmount(tx.amount?.toString() || '');
+    setEditMerchant(tx.merchant_name || '');
+    setEditCategory((tx.category_final || tx.category_guess || 'other') as ExpenseCategory);
+    setEditDate(tx.date_display || '');
+    setEditTime(tx.time_display || '');
+    setEditNotes(tx.notes || '');
+  }
+
+  async function handleAction(action: 'confirm' | 'ignore' | 'update') {
+    if (!id || !idToken) return;
+    setSaving(true);
+
+    try {
+      const body: any = { action, transactionId: id, idToken };
+
+      if (action === 'update') {
+        body.updates = {
+          amount: parseFloat(editAmount) || null,
+          merchant_name: editMerchant || null,
+          category_final: editCategory,
+          date_display: editDate || null,
+          time_display: editTime || null,
+          notes: editNotes || null,
+        };
+      }
+
+      const { data, error } = await supabase.functions.invoke('liff-action', { body });
+
+      if (error || data?.error) {
+        if (data?.already_finalized) {
+          setFinalStatus(data.status);
+          setViewState('already_finalized');
+        } else {
+          setErrorMsg(data?.error || 'เกิดข้อผิดพลาด');
+          setViewState('error');
+        }
+        return;
+      }
+
+      setTransaction(data.transaction);
+      setFinalStatus(action === 'ignore' ? 'ignored' : 'confirmed');
+      setViewState('success');
+    } catch (e: any) {
+      setErrorMsg(e.message);
+      setViewState('error');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  // --- Render states ---
+
+  if (viewState === 'loading') {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-background">
+        <div className="text-center space-y-3">
+          <Loader2 className="h-8 w-8 animate-spin text-primary mx-auto" />
+          <p className="text-muted-foreground text-sm">กำลังโหลด...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (viewState === 'login_required') {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-background px-4">
+        <div className="text-center space-y-4 max-w-xs">
+          <ShieldX className="h-12 w-12 text-muted-foreground mx-auto" />
+          <h1 className="text-lg font-semibold text-foreground">กรุณาเข้าสู่ระบบ LINE</h1>
+          <p className="text-sm text-muted-foreground">เพื่อดูและจัดการรายการของคุณ</p>
+          <Button onClick={login} className="w-full bg-[#06C755] hover:bg-[#05b34d] text-white">
+            เข้าสู่ระบบด้วย LINE
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  if (viewState === 'not_found') {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-background px-4">
+        <div className="text-center space-y-3">
+          <AlertTriangle className="h-12 w-12 text-accent mx-auto" />
+          <h1 className="text-lg font-semibold text-foreground">ไม่พบรายการ</h1>
+          <p className="text-sm text-muted-foreground">ลิงก์อาจหมดอายุหรือรายการถูกลบแล้ว</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (viewState === 'no_permission') {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-background px-4">
+        <div className="text-center space-y-3">
+          <ShieldX className="h-12 w-12 text-destructive mx-auto" />
+          <h1 className="text-lg font-semibold text-foreground">ไม่มีสิทธิ์เข้าถึง</h1>
+          <p className="text-sm text-muted-foreground">รายการนี้ไม่ใช่ของคุณ</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (viewState === 'already_finalized') {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-background px-4">
+        <div className="text-center space-y-3">
+          <CheckCircle2 className="h-12 w-12 text-primary mx-auto" />
+          <h1 className="text-lg font-semibold text-foreground">
+            {finalStatus === 'confirmed' ? 'รายการนี้ยืนยันแล้ว' : 'รายการนี้ถูกข้ามแล้ว'}
+          </h1>
+          {transaction && (
+            <div className="text-sm text-muted-foreground space-y-1">
+              <p>💰 {transaction.amount?.toLocaleString() || '?'} {transaction.currency || 'THB'}</p>
+              {transaction.merchant_name && <p>🏪 {transaction.merchant_name}</p>}
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  if (viewState === 'success') {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-background px-4">
+        <div className="text-center space-y-3">
+          <CheckCircle2 className="h-12 w-12 text-primary mx-auto" />
+          <h1 className="text-lg font-semibold text-foreground">
+            {finalStatus === 'ignored' ? 'ข้ามรายการแล้ว' : 'บันทึกสำเร็จ!'}
+          </h1>
+          {transaction && finalStatus !== 'ignored' && (
+            <div className="text-sm text-muted-foreground space-y-1">
+              <p>💰 {transaction.amount?.toLocaleString() || '?'} {transaction.currency || 'THB'}</p>
+              {transaction.merchant_name && <p>🏪 {transaction.merchant_name}</p>}
+            </div>
+          )}
+          <p className="text-xs text-muted-foreground pt-2">สามารถปิดหน้านี้ได้</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (viewState === 'error') {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-background px-4">
+        <div className="text-center space-y-3">
+          <AlertTriangle className="h-12 w-12 text-destructive mx-auto" />
+          <h1 className="text-lg font-semibold text-foreground">เกิดข้อผิดพลาด</h1>
+          <p className="text-sm text-muted-foreground">{errorMsg}</p>
+        </div>
+      </div>
+    );
+  }
+
+  // --- Ready / Editing state ---
+  const tx = transaction;
+
+  return (
+    <div className="min-h-screen bg-background">
+      {/* Header */}
+      <div className="bg-primary text-primary-foreground px-4 py-3 flex items-center gap-3">
+        {pictureUrl && <img src={pictureUrl} alt="" className="h-8 w-8 rounded-full" />}
+        <div>
+          <p className="text-sm font-medium">{displayName || 'LINE User'}</p>
+          <p className="text-xs opacity-80">SlipSync</p>
+        </div>
+      </div>
+
+      <div className="px-4 py-4 space-y-4 max-w-lg mx-auto">
+        {/* Summary card */}
+        <div className="rounded-xl border border-border bg-card p-4 space-y-2">
+          <div className="flex items-baseline justify-between">
+            <span className="text-2xl font-bold text-foreground">
+              {tx?.amount?.toLocaleString() || '?'}
+            </span>
+            <span className="text-sm text-muted-foreground">{tx?.currency || 'THB'}</span>
+          </div>
+          {tx?.merchant_name && <p className="text-sm text-muted-foreground">🏪 {tx.merchant_name}</p>}
+          {tx?.receiver_name && <p className="text-sm text-muted-foreground">👤 {tx.receiver_name}</p>}
+          {tx?.bank_name && <p className="text-sm text-muted-foreground">🏦 {tx.bank_name}</p>}
+          {tx?.date_display && (
+            <p className="text-sm text-muted-foreground">📅 {tx.date_display} {tx.time_display || ''}</p>
+          )}
+          {tx?.category_guess && (
+            <p className="text-sm text-muted-foreground">
+              📁 {EXPENSE_CATEGORIES.find(c => c.value === tx.category_guess)?.labelTh || tx.category_guess}
+            </p>
+          )}
+        </div>
+
+        {viewState === 'editing' ? (
+          /* Edit form */
+          <div className="space-y-3">
+            <div className="space-y-1.5">
+              <Label className="text-xs">จำนวนเงิน</Label>
+              <Input type="number" step="0.01" value={editAmount} onChange={e => setEditAmount(e.target.value)} />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs">ร้านค้า</Label>
+              <Input value={editMerchant} onChange={e => setEditMerchant(e.target.value)} />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs">หมวดหมู่</Label>
+              <Select value={editCategory} onValueChange={v => setEditCategory(v as ExpenseCategory)}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {EXPENSE_CATEGORIES.map(c => (
+                    <SelectItem key={c.value} value={c.value}>{c.labelTh}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <div className="space-y-1.5">
+                <Label className="text-xs">วันที่</Label>
+                <Input value={editDate} onChange={e => setEditDate(e.target.value)} />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs">เวลา</Label>
+                <Input value={editTime} onChange={e => setEditTime(e.target.value)} />
+              </div>
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs">บันทึก</Label>
+              <Textarea value={editNotes} onChange={e => setEditNotes(e.target.value)} rows={2} />
+            </div>
+
+            <div className="flex gap-2 pt-2">
+              <Button onClick={() => handleAction('update')} disabled={saving} className="flex-1">
+                {saving ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Check className="h-4 w-4 mr-1" />}
+                บันทึก
+              </Button>
+              <Button variant="outline" onClick={() => setViewState('ready')} className="flex-1">
+                ยกเลิก
+              </Button>
+            </div>
+          </div>
+        ) : (
+          /* Action buttons */
+          <div className="space-y-2">
+            <Button onClick={() => handleAction('confirm')} disabled={saving} className="w-full h-12 text-base">
+              {saving ? <Loader2 className="h-5 w-5 animate-spin mr-2" /> : <Check className="h-5 w-5 mr-2" />}
+              ✅ ยืนยัน
+            </Button>
+            <Button variant="outline" onClick={() => setViewState('editing')} className="w-full h-12 text-base">
+              <Pencil className="h-5 w-5 mr-2" />
+              ✏️ แก้ไข
+            </Button>
+            <Button variant="destructive" onClick={() => handleAction('ignore')} disabled={saving} className="w-full h-12 text-base">
+              {saving ? <Loader2 className="h-5 w-5 animate-spin mr-2" /> : <X className="h-5 w-5 mr-2" />}
+              ❌ ข้าม
+            </Button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
