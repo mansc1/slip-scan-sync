@@ -12,8 +12,8 @@ export function useTransactions(filters?: {
   return useQuery({
     queryKey: ['transactions', filters],
     queryFn: async (): Promise<Transaction[]> => {
-      const { data: session } = await supabase.auth.getSession();
-      if (!session?.session) {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
         return DEMO_TRANSACTIONS;
       }
 
@@ -43,8 +43,8 @@ export function useTransaction(id: string) {
   return useQuery({
     queryKey: ['transaction', id],
     queryFn: async (): Promise<Transaction | null> => {
-      const { data: session } = await supabase.auth.getSession();
-      if (!session?.session) {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
         return DEMO_TRANSACTIONS.find(t => t.id === id) || null;
       }
 
