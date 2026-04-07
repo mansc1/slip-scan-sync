@@ -12,8 +12,9 @@ export function useTransactions(filters?: {
   return useQuery({
     queryKey: ['transactions', filters],
     queryFn: async (): Promise<Transaction[]> => {
-      const { data: session } = await supabase.auth.getSession();
+      const { data: { session } } = await supabase.auth.getSession();
       if (!session?.session) {
+        // Unauthenticated: show static demo data only
         return DEMO_TRANSACTIONS;
       }
 
