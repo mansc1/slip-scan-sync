@@ -100,16 +100,18 @@ export function SlipUploader({ onExtracted }: SlipUploaderProps) {
               </div>
             </div>
           )}
-          <input
-            type="file"
-            accept="image/*"
-            className="absolute inset-0 cursor-pointer opacity-0"
-            onChange={(e) => {
-              const file = e.target.files?.[0];
-              if (file) handleFile(file);
-            }}
-            disabled={loading}
-          />
+          {isAuthenticated && (
+            <input
+              type="file"
+              accept="image/*"
+              className="absolute inset-0 cursor-pointer opacity-0"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) handleFile(file);
+              }}
+              disabled={loading}
+            />
+          )}
         </div>
       </CardContent>
     </Card>
