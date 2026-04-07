@@ -1,43 +1,128 @@
-# Fix Manual Upload → Transaction Creation Flow
+Findings with evidence:
 
-## Problem Analysis
+1. `extract-slip` is creating database records.
+  - DB row exists for the uploaded slip:
+  - A newer manual-upload row also exists:
+    ```text
+    transactions.id = 5083fd03-7a8c-4bb3-a22a-0d44c27f9232
+    status = pending_confirmation
+    source = manual_upload
+    user_id = null
+    line_user_id = null
+    ```
+2. `transaction_images` is also being inserted.
+  - For `a7a7701e-19fd-42dd-8ea5-c2a85a940845`, there is a related image row:
+  - Latest manual-upload rows also show `image_rows = 1`.
+3. Actual response payload from `extract-slip` currently is:
+  ```json
+   {
+     "transaction_id": "a7a7701e-19fd-42dd-8ea5-c2a85a940845",
+     "status": "pending_confirmation",
+     "source": "manual_upload",
+     "extraction": { ... },
+     "extraction_failed": false,
+     "error_message": null
+   }
+  ```
+   Missing field: `created`.
+4. Edge logs confirm insert execution:
+  ```text
+   Inserting transaction: {
+     userId: null,
+     lineUserId: undefined,
+     source: "manual_upload",
+     extractionFailed: false
+   }
+  ```
+   and prior logs already showed:
 
-The `extract-slip` edge function **already has the code** to create transaction and transaction_images records (lines 246-290). The function uses the service role key, so RLS is not blocking inserts. The actual issues are:
+Exact root cause:
 
-1. **Dashboard never refreshes** — `Index.tsx` line 72 just shows a toast on `onExtracted`, never invalidates the React Query cache, so the new transaction doesn't appear
-2. **Source mismatch** — frontend sends `source: 'manual'` but the plan specifies `manual_upload` as the source value
-3. **Unauthenticated uploads** — if no user is logged in, `user_id` is null, and the RLS SELECT policy (`auth.uid() = user_id`) won't return the transaction on the dashboard
+- This is not a failed insert.
+- The manual upload happened while unauthenticated. The network request used the anon token, not a logged-in user token.
+- In `extract-slip`, that means:
+  - `userId = null`
+  - `lineUserId = null`
+  - transaction is inserted with no owner identity
+- In the dashboard, `useTransactions()` does this:
+  - if no auth session → returns `DEMO_TRANSACTIONS`
+  - it does not query the real database at all
+- So the new row exists in the database, but the dashboard never loads it in demo mode.
+- Even if it did query the DB, current RLS would not expose rows with `user_id = null`.
 
-## Changes
+What is not causing the issue in the observed run:
 
-### 1. `src/pages/Index.tsx` — Refresh dashboard after upload
+- Not invalid enum: row saved with `status = pending_confirmation`, `source = manual_upload`
+- Not null constraint: row inserted successfully
+- Not foreign key: image row inserted too
+- Not source filtering: dashboard query does not filter by `source`
+- Not month filtering: dashboard query does not filter by month
+- Not default status filtering: default is `all`
+- Not cache invalidation alone: cache can refresh, but demo mode still returns hardcoded demo data
 
-- Import `useQueryClient` from `@tanstack/react-query`
-- In the `onExtracted` callback, call `queryClient.invalidateQueries({ queryKey: ['transactions'] })` so the new pending transaction appears immediately
+Implementation plan:
 
-### 2. `src/components/dashboard/SlipUploader.tsx` — Fix source value + better error handling
+1. Fix the ownership model first
+  - Do not create persistent transactions with both `user_id` and `line_user_id` empty
+  - For manual upload:
+    - logged-in admin → save with `user_id`
+    - LINE flow → save with `line_user_id`
+    - demo/testing mode → use an explicit `demo_session_id` ownership model, or block persistence
+  - This is the real fix
+2. Fix `extract-slip` response and logs
+  - Always return:
+  - Add logs for:
+    - before insert
+    - full insert payload
+    - insert result
+    - inserted transaction id
+    - image insert result
+    - any Supabase error
+  - Also fix fallback `source` to `manual_upload` instead of `manual`
+3. Fix demo-mode visibility path
+  - Current demo mode is read-only fake data
+  - If you want demo uploads to create visible test transactions, add:
+    - `demo_session_id` column
+    - browser-persisted demo session id
+    - backend read path for that session’s transactions
+  - If you want the simpler safe version, require admin login before saving manual uploads
+4. Keep authenticated admin flow working
+  - When logged in, manual upload should save with `user_id = auth.uid()`
+  - Existing RLS then allows the dashboard query to see the row
+  - Cache invalidation can remain, but it is secondary
+5. Frontend query behavior to keep/adjust
+  - `useTransactions()` currently hides all DB data in unauthenticated mode
+  - Change it to:
+    - authenticated admin → query DB directly
+    - demo session → fetch demo-session-owned rows through backend
+    - otherwise → show static demo data only
 
-- Change `source: 'manual'` → `source: 'manual_upload'` to match the documented source convention
-- Surface the `transaction_id` from the response in the success toast
-- Handle 409 duplicate response gracefully (show "duplicate detected" instead of generic error)
+Files to change:
 
-### 3. `supabase/functions/extract-slip/index.ts` — Minor logging improvements
+- `supabase/functions/extract-slip/index.ts`
+- `src/components/dashboard/SlipUploader.tsx`
+- `src/hooks/useTransactions.ts`
+- `src/pages/Index.tsx`
+- new migration if implementing `demo_session_id`
 
-- Add `console.log` before and after the transaction insert so we can see in edge function logs whether the insert succeeded or failed
-- The function already handles both authenticated (dashboard) and LINE identity correctly
+Recommended implementation order:
 
-### 4. No RLS changes needed
+1. Fix `extract-slip` owner validation + response shape + logs
+2. Decide demo-mode persistence model
+3. Update dashboard data loading for that model
+4. Keep cache invalidation after upload
 
-- The edge function uses the **service role key** for all DB operations, which bypasses RLS entirely
-- Dashboard queries go through the anon client with RLS — for authenticated users, `user_id` matches `auth.uid()` so transactions are visible
-- For unauthenticated "demo mode" users, `useTransactions` already returns `DEMO_TRANSACTIONS` (line 18 of useTransactions.ts), so they won't see real DB data anyway — this is correct behavior
+Bottom line:
 
-## Summary of Root Cause
-
-The extraction and DB insert are working. The dashboard just never refreshes its cached query after upload. One line of query invalidation fixes the core issue.  
+- The database insert path is working.
+- The visible failure is caused by ownerless rows being created during unauthenticated manual upload, combined with demo-mode dashboard logic that never loads real DB rows.  
   
-Approve, with two small additions:
-
-1. After upload success, invalidate both the transactions list query and any dashboard summary/stat queries, not just `['transactions']`, so the overview cards also refresh immediately.
-
-2. In the success path, verify that the edge function response always returns `transaction_id`, `status`, and `source`, and log them clearly in the frontend so we can confirm the created record matches the expected `pending_confirmation` + `manual_upload` flow.
+1. Do not persist real transactions when both `user_id` and `line_user_id` are empty, unless there is an explicit demo-session ownership model.
+  2. Prefer the simpler MVP path first: require admin login for persistent manual-upload transactions, and keep unauthenticated users on static demo data only.
+  3. If a manual upload is attempted while unauthenticated, show a clear UI message such as:
+     "Manual upload in demo mode does not save real transactions. Please use Admin Login to test real persistence."
+  &nbsp;
+  Also:
+  - return `created: true/false` in every `extract-slip` response
+  - keep `source` normalized to `manual_upload`
+  - preserve the current cache invalidation after successful upload
