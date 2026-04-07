@@ -176,21 +176,43 @@ serve(async (req) => {
             ext.category_guess ? `📁 ${ext.category_guess}` : null,
           ].filter(Boolean).join("\n");
 
-          await replyToLine(replyToken, [
+          const liffUrl = buildLiffUrl(extractData.transaction_id);
+          const actionButtons: any[] = [
+            { type: "postback", label: "✅ ยืนยัน", data: `action=confirm&id=${extractData.transaction_id}` },
+            { type: "postback", label: "❌ ข้าม", data: `action=ignore&id=${extractData.transaction_id}` },
+          ];
+
+          // Add LIFF edit button if LIFF_ID is configured
+          const replyMessages: any[] = [
             { type: "text", text: `📋 สลิปใหม่\n\n${summary}` },
-            {
+          ];
+
+          if (liffUrl) {
+            replyMessages.push({
               type: "template",
               altText: "ยืนยันรายการ",
               template: {
                 type: "buttons",
                 text: "ต้องการดำเนินการอย่างไร?",
                 actions: [
-                  { type: "postback", label: "✅ ยืนยัน", data: `action=confirm&id=${extractData.transaction_id}` },
-                  { type: "postback", label: "❌ ข้าม", data: `action=ignore&id=${extractData.transaction_id}` },
+                  ...actionButtons,
+                  { type: "uri", label: "✏️ แก้ไข", uri: liffUrl },
                 ],
               },
-            },
-          ], accessToken);
+            });
+          } else {
+            replyMessages.push({
+              type: "template",
+              altText: "ยืนยันรายการ",
+              template: {
+                type: "buttons",
+                text: "ต้องการดำเนินการอย่างไร?",
+                actions: actionButtons,
+              },
+            });
+          }
+
+          await replyToLine(replyToken, replyMessages, accessToken);
         } catch (imgErr: any) {
           console.error("Image processing error:", imgErr);
           await replyToLine(replyToken, [{
