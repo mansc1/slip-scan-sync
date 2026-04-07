@@ -65,6 +65,12 @@ async function ensureLineUser(
     );
 }
 
+function buildLiffUrl(transactionId: string): string {
+  const liffId = Deno.env.get("LIFF_ID") || "";
+  if (!liffId) return "";
+  return `https://liff.line.me/${liffId}/liff/transaction/${transactionId}`;
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
