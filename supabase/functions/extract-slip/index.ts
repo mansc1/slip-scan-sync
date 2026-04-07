@@ -242,63 +242,88 @@ serve(async (req) => {
       };
     }
 
-    // Create transaction with clear owner identity
-    console.log("Inserting transaction:", { userId, lineUserId, source: source || "manual_upload", extractionFailed });
+    // Block ownerless transactions — require either auth user or LINE identity
+    const effectiveSource = source || "manual_upload";
+    if (!userId && !lineUserId) {
+      console.log("Blocked: no owner identity (userId=null, lineUserId=null). Returning extraction only.");
+      return new Response(JSON.stringify({
+        transaction_id: null,
+        status: null,
+        source: effectiveSource,
+        created: false,
+        extraction: extractionResult,
+        extraction_failed: extractionFailed,
+        error_message: extractionFailed ? errorMessage : null,
+        message: "กรุณาเข้าสู่ระบบ Admin เพื่อบันทึกรายการจริง (Demo mode ไม่บันทึกลงฐานข้อมูล)",
+      }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // Create transaction with verified owner identity
+    const insertPayload = {
+      user_id: userId || null,
+      line_user_id: lineUserId || null,
+      line_message_id: lineMessageId || null,
+      status: extractionFailed ? "extraction_failed" : "pending_confirmation",
+      transaction_type: extractionResult.transaction_type,
+      payment_status: extractionResult.payment_status,
+      amount: extractionResult.amount,
+      currency: extractionResult.currency,
+      date_display: extractionResult.date_display,
+      time_display: extractionResult.time_display,
+      transaction_datetime_iso: extractionResult.transaction_datetime_iso,
+      payer_name: extractionResult.payer_name,
+      receiver_name: extractionResult.receiver_name,
+      merchant_name: extractionResult.merchant_name,
+      bank_name: extractionResult.bank_name,
+      reference_no: extractionResult.reference_no,
+      merchant_code: extractionResult.merchant_code,
+      transaction_code: extractionResult.transaction_code,
+      fee: extractionResult.fee,
+      category_guess: extractionResult.category_guess,
+      confidence_score: extractionResult.confidence_score,
+      raw_ocr_text: extractionResult.raw_ocr_text,
+      raw_provider_response: extractionFailed ? { error: errorMessage } : extractionResult,
+      parsed_result: extractionFailed ? null : extractionResult,
+      image_hash: imageHash,
+      source_image_url: filePath,
+      source: effectiveSource,
+      sheets_sync_status: "not_applicable",
+      drive_sync_status: "not_applicable",
+      notes: extractionFailed ? `Extraction failed: ${errorMessage}` : null,
+    };
+    console.log("Inserting transaction:", JSON.stringify({ userId, lineUserId, source: effectiveSource, extractionFailed, amount: insertPayload.amount }));
+
     const { data: txData, error: txError } = await supabase
       .from("transactions")
-      .insert({
-        user_id: userId || null,
-        line_user_id: lineUserId || null,
-        line_message_id: lineMessageId || null,
-        status: extractionFailed ? "extraction_failed" : "pending_confirmation",
-        transaction_type: extractionResult.transaction_type,
-        payment_status: extractionResult.payment_status,
-        amount: extractionResult.amount,
-        currency: extractionResult.currency,
-        date_display: extractionResult.date_display,
-        time_display: extractionResult.time_display,
-        transaction_datetime_iso: extractionResult.transaction_datetime_iso,
-        payer_name: extractionResult.payer_name,
-        receiver_name: extractionResult.receiver_name,
-        merchant_name: extractionResult.merchant_name,
-        bank_name: extractionResult.bank_name,
-        reference_no: extractionResult.reference_no,
-        merchant_code: extractionResult.merchant_code,
-        transaction_code: extractionResult.transaction_code,
-        fee: extractionResult.fee,
-        category_guess: extractionResult.category_guess,
-        confidence_score: extractionResult.confidence_score,
-        raw_ocr_text: extractionResult.raw_ocr_text,
-        raw_provider_response: extractionFailed ? { error: errorMessage } : extractionResult,
-        parsed_result: extractionFailed ? null : extractionResult,
-        image_hash: imageHash,
-        source_image_url: filePath,
-        source: source || "manual",
-        sheets_sync_status: "not_applicable",
-        drive_sync_status: "not_applicable",
-        notes: extractionFailed ? `Extraction failed: ${errorMessage}` : null,
-      })
+      .insert(insertPayload)
       .select()
       .single();
 
     if (txError) {
-      console.error("Transaction insert failed:", txError);
+      console.error("Transaction insert FAILED:", JSON.stringify(txError));
       throw txError;
     }
-    console.log("Transaction created:", { id: txData.id, status: txData.status, source: txData.source });
+    console.log("Transaction inserted OK:", JSON.stringify({ id: txData.id, status: txData.status, source: txData.source, user_id: txData.user_id }));
 
     // Create transaction_images record
-    const { error: imgError } = await supabase.from("transaction_images").insert({
+    const { data: imgData, error: imgError } = await supabase.from("transaction_images").insert({
       transaction_id: txData.id,
       file_path: filePath,
       mime_type: mimeType || "image/jpeg",
-    });
-    if (imgError) console.error("Image record insert failed:", imgError);
+    }).select().single();
+    if (imgError) {
+      console.error("Image record insert FAILED:", JSON.stringify(imgError));
+    } else {
+      console.log("Image record inserted OK:", JSON.stringify({ id: imgData.id, transaction_id: imgData.transaction_id }));
+    }
 
     return new Response(JSON.stringify({
       transaction_id: txData.id,
       status: txData.status,
       source: txData.source,
+      created: true,
       extraction: extractionResult,
       extraction_failed: extractionFailed,
       error_message: extractionFailed ? errorMessage : null,

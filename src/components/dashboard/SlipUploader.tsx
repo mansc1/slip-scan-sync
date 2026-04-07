@@ -1,9 +1,11 @@
 import { useState, useCallback } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Upload, Loader2, ImageIcon } from 'lucide-react';
+import { Upload, Loader2, ImageIcon, LogIn } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
+import { useAuth } from '@/hooks/useAuth';
+import { useNavigate } from 'react-router-dom';
 
 interface SlipUploaderProps {
   onExtracted?: (result: any) => void;
@@ -13,6 +15,8 @@ export function SlipUploader({ onExtracted }: SlipUploaderProps) {
   const [dragging, setDragging] = useState(false);
   const [loading, setLoading] = useState(false);
   const [preview, setPreview] = useState<string | null>(null);
+  const { isAuthenticated } = useAuth();
+  const navigate = useNavigate();
 
   const handleFile = useCallback(async (file: File) => {
     if (!file.type.startsWith('image/')) {
@@ -32,14 +36,19 @@ export function SlipUploader({ onExtracted }: SlipUploaderProps) {
       });
 
       if (error) {
-        // Check for duplicate (409)
         if (data?.existing_transaction_id) {
           toast.error('สลิปซ้ำ — รายการนี้มีอยู่แล้ว');
           return;
         }
         throw error;
       }
-      toast.success('สกัดข้อมูลสำเร็จ!');
+
+      if (data?.created === false) {
+        toast.info(data.message || 'กรุณาเข้าสู่ระบบเพื่อบันทึกรายการจริง');
+        return;
+      }
+
+      toast.success(`สกัดข้อมูลสำเร็จ (ID: ${data?.transaction_id?.slice(0, 8)}…)`);
       onExtracted?.(data);
     } catch (err: any) {
       toast.error('ไม่สามารถสกัดข้อมูลได้: ' + (err.message || 'Unknown error'));
