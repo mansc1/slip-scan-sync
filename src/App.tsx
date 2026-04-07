@@ -11,6 +11,7 @@ import Upload from "./pages/Upload";
 import Export from "./pages/Export";
 import SettingsPage from "./pages/SettingsPage";
 import Auth from "./pages/Auth";
+import LiffTransaction from "./pages/LiffTransaction";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -43,6 +44,7 @@ const App = () => (
           <Route path="/upload" element={<ProtectedRoute><Upload /></ProtectedRoute>} />
           <Route path="/export" element={<ProtectedRoute><Export /></ProtectedRoute>} />
           <Route path="/settings" element={<ProtectedRoute><SettingsPage /></ProtectedRoute>} />
+          <Route path="/liff/transaction/:id" element={<LiffTransaction />} />
           <Route path="*" element={<NotFound />} />
         </Routes>
       </BrowserRouter>
