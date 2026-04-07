@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { OverviewCards } from '@/components/dashboard/OverviewCards';
 import { TransactionTable } from '@/components/dashboard/TransactionTable';
@@ -9,6 +10,7 @@ import { toast } from 'sonner';
 import type { ExpenseCategory, TransactionStatus } from '@/types';
 
 const Index = () => {
+  const queryClient = useQueryClient();
   const [search, setSearch] = useState('');
   const [category, setCategory] = useState('all');
   const [status, setStatus] = useState('all');
@@ -70,7 +72,9 @@ const Index = () => {
           <div>
             <SlipUploader
               onExtracted={(result) => {
-                toast.success('สกัดข้อมูลจากสลิปสำเร็จ');
+                console.log('Extract-slip response:', result);
+                toast.success(`สกัดข้อมูลสำเร็จ (ID: ${result?.transaction_id?.slice(0, 8)}… status: ${result?.status}, source: manual_upload)`);
+                queryClient.invalidateQueries({ queryKey: ['transactions'] });
               }}
             />
           </div>
