@@ -139,7 +139,13 @@ serve(async (req) => {
           }
 
           // Call extract-slip with lineUserId context
-          const base64 = btoa(String.fromCharCode(...imageData));
+          // Chunk the conversion to avoid stack overflow on large images
+          let binary = "";
+          const chunkSize = 8192;
+          for (let i = 0; i < imageData.length; i += chunkSize) {
+            binary += String.fromCharCode(...imageData.subarray(i, i + chunkSize));
+          }
+          const base64 = btoa(binary);
 
           const extractRes = await fetch(`${supabaseUrl}/functions/v1/extract-slip`, {
             method: "POST",
