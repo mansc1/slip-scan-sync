@@ -15,7 +15,28 @@ export default function Auth() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
+  const [lineLoading, setLineLoading] = useState(false);
 
+  const handleLineLogin = async () => {
+    if (!LIFF_ID) {
+      toast.error('LINE Login ยังไม่ได้ตั้งค่า');
+      return;
+    }
+    setLineLoading(true);
+    try {
+      await liff.init({ liffId: LIFF_ID });
+      if (!liff.isLoggedIn()) {
+        liff.login({ redirectUri: window.location.origin });
+      } else {
+        // Already logged in via LIFF — redirect to home
+        window.location.href = '/';
+      }
+    } catch (err: any) {
+      console.error('LINE Login error:', err);
+      toast.error('ไม่สามารถเชื่อมต่อ LINE ได้');
+      setLineLoading(false);
+    }
+  };
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
