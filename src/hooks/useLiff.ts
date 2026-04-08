@@ -1,20 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import liff from '@line/liff';
-
-interface LiffState {
-  isReady: boolean;
-  isLoggedIn: boolean;
-  isInClient: boolean;
-  lineUserId: string | null;
-  displayName: string | null;
-  pictureUrl: string | null;
-  idToken: string | null;
-  error: string | null;
-  login: () => void;
-  logout: () => void;
-}
-
-const LIFF_ID = import.meta.env.VITE_LIFF_ID || '';
+import { LIFF_ID } from '@/config/liff';
 
 export function useLiff(): LiffState {
   const [isReady, setIsReady] = useState(false);
