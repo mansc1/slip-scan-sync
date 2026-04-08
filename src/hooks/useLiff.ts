@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import liff from '@line/liff';
+import { LIFF_ID } from '@/config/liff';
 
 interface LiffState {
   isReady: boolean;
@@ -13,8 +14,6 @@ interface LiffState {
   login: () => void;
   logout: () => void;
 }
-
-const LIFF_ID = import.meta.env.VITE_LIFF_ID || '';
 
 export function useLiff(): LiffState {
   const [isReady, setIsReady] = useState(false);
