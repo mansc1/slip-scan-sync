@@ -29,9 +29,11 @@ interface TransactionTableProps {
   transactions: Transaction[];
   onConfirm?: (id: string) => void;
   onIgnore?: (id: string) => void;
+  /** Hide source/debug columns for end users */
+  hideSystemColumns?: boolean;
 }
 
-export function TransactionTable({ transactions, onConfirm, onIgnore }: TransactionTableProps) {
+export function TransactionTable({ transactions, onConfirm, onIgnore, hideSystemColumns = false }: TransactionTableProps) {
   const navigate = useNavigate();
 
   const fmt = (n: number | null) =>
@@ -48,14 +50,14 @@ export function TransactionTable({ transactions, onConfirm, onIgnore }: Transact
             <TableHead className="text-right">จำนวน</TableHead>
             <TableHead>หมวด</TableHead>
             <TableHead>สถานะ</TableHead>
-            <TableHead>ที่มา</TableHead>
+            {!hideSystemColumns && <TableHead>ที่มา</TableHead>}
             <TableHead className="text-right">จัดการ</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
           {transactions.length === 0 && (
             <TableRow>
-              <TableCell colSpan={8} className="text-center text-muted-foreground py-8">
+              <TableCell colSpan={hideSystemColumns ? 7 : 8} className="text-center text-muted-foreground py-8">
                 ไม่พบรายการ
               </TableCell>
             </TableRow>
@@ -80,7 +82,7 @@ export function TransactionTable({ transactions, onConfirm, onIgnore }: Transact
                   <span className="text-sm">{CATEGORY_ICONS[cat]} {cat}</span>
                 </TableCell>
                 <TableCell><StatusBadge status={tx.status} /></TableCell>
-                <TableCell className="text-xs capitalize">{tx.source}</TableCell>
+                {!hideSystemColumns && <TableCell className="text-xs capitalize">{tx.source}</TableCell>}
                 <TableCell className="text-right" onClick={e => e.stopPropagation()}>
                   <div className="flex items-center justify-end gap-1">
                     <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => navigate(`/transactions/${tx.id}`)}>

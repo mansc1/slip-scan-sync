@@ -4,6 +4,7 @@ import { Toaster as Sonner } from "@/components/ui/sonner";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useAuth } from "@/hooks/useAuth";
+import { useLineAuth, LineAuthProvider } from "@/contexts/LineAuthContext";
 import Index from "./pages/Index";
 import TransactionDetail from "./pages/TransactionDetail";
 import TransactionEdit from "./pages/TransactionEdit";
@@ -12,15 +13,24 @@ import Export from "./pages/Export";
 import SettingsPage from "./pages/SettingsPage";
 import Auth from "./pages/Auth";
 import LiffTransaction from "./pages/LiffTransaction";
+import LiffDashboard from "./pages/LiffDashboard";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
 
-function ProtectedRoute({ children }: { children: React.ReactNode }) {
+function ProtectedRoute({ children, adminOnly = false }: { children: React.ReactNode; adminOnly?: boolean }) {
   const { isAuthenticated, loading } = useAuth();
+  const { isLineUser } = useLineAuth();
+
   if (loading) return <div className="flex min-h-screen items-center justify-center text-muted-foreground">กำลังโหลด...</div>;
-  if (!isAuthenticated) return <Navigate to="/auth" replace />;
-  return <>{children}</>;
+
+  // LINE users can access dashboard but not admin-only routes
+  if (isLineUser && !adminOnly) return <>{children}</>;
+
+  // Admin access via Supabase auth
+  if (isAuthenticated) return <>{children}</>;
+
+  return <Navigate to="/auth" replace />;
 }
 
 function AuthRoute({ children }: { children: React.ReactNode }) {
@@ -30,25 +40,32 @@ function AuthRoute({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
+const AppRoutes = () => (
+  <Routes>
+    <Route path="/auth" element={<AuthRoute><Auth /></AuthRoute>} />
+    <Route path="/" element={<ProtectedRoute><Index /></ProtectedRoute>} />
+    <Route path="/transactions/:id" element={<ProtectedRoute><TransactionDetail /></ProtectedRoute>} />
+    <Route path="/transactions/:id/edit" element={<ProtectedRoute adminOnly><TransactionEdit /></ProtectedRoute>} />
+    <Route path="/upload" element={<ProtectedRoute adminOnly><Upload /></ProtectedRoute>} />
+    <Route path="/export" element={<ProtectedRoute adminOnly><Export /></ProtectedRoute>} />
+    <Route path="/settings" element={<ProtectedRoute adminOnly><SettingsPage /></ProtectedRoute>} />
+    <Route path="/liff/transaction/:id" element={<LiffTransaction />} />
+    <Route path="/liff/dashboard" element={<LiffDashboard />} />
+    <Route path="*" element={<NotFound />} />
+  </Routes>
+);
+
 const App = () => (
   <QueryClientProvider client={queryClient}>
-    <TooltipProvider>
-      <Toaster />
-      <Sonner />
-      <BrowserRouter>
-        <Routes>
-          <Route path="/auth" element={<AuthRoute><Auth /></AuthRoute>} />
-          <Route path="/" element={<ProtectedRoute><Index /></ProtectedRoute>} />
-          <Route path="/transactions/:id" element={<ProtectedRoute><TransactionDetail /></ProtectedRoute>} />
-          <Route path="/transactions/:id/edit" element={<ProtectedRoute><TransactionEdit /></ProtectedRoute>} />
-          <Route path="/upload" element={<ProtectedRoute><Upload /></ProtectedRoute>} />
-          <Route path="/export" element={<ProtectedRoute><Export /></ProtectedRoute>} />
-          <Route path="/settings" element={<ProtectedRoute><SettingsPage /></ProtectedRoute>} />
-          <Route path="/liff/transaction/:id" element={<LiffTransaction />} />
-          <Route path="*" element={<NotFound />} />
-        </Routes>
-      </BrowserRouter>
-    </TooltipProvider>
+    <LineAuthProvider>
+      <TooltipProvider>
+        <Toaster />
+        <Sonner />
+        <BrowserRouter>
+          <AppRoutes />
+        </BrowserRouter>
+      </TooltipProvider>
+    </LineAuthProvider>
   </QueryClientProvider>
 );
 

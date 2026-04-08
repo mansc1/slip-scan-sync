@@ -71,6 +71,12 @@ function buildLiffUrl(transactionId: string): string {
   return `https://liff.line.me/${liffId}/liff/transaction/${transactionId}`;
 }
 
+function buildDashboardUrl(): string {
+  const liffId = Deno.env.get("LIFF_ID") || "";
+  if (!liffId) return "";
+  return `https://liff.line.me/${liffId}/liff/dashboard`;
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
@@ -313,10 +319,30 @@ serve(async (req) => {
             text: `📊 สรุปเดือน${monthName}\n\n💰 รวม: ${total.toLocaleString()} บาท\n📝 ${count} รายการ${breakdown ? `\n\n📁 ตามหมวด:\n${breakdown}` : ""}`,
           }], accessToken);
         } else {
-          await replyToLine(replyToken, [{
-            type: "text",
-            text: "📸 ส่งรูปสลิปมาบันทึกรายจ่าย\n📊 พิมพ์ 'สรุป' ดูยอดเดือนนี้",
-          }], accessToken);
+          const dashboardUrl = buildDashboardUrl();
+          const helpText = "📸 ส่งรูปสลิปมาบันทึกรายจ่าย\n📊 พิมพ์ 'สรุป' ดูยอดเดือนนี้";
+          
+          if (dashboardUrl) {
+            await replyToLine(replyToken, [
+              { type: "text", text: helpText },
+              {
+                type: "template",
+                altText: "ดู Dashboard",
+                template: {
+                  type: "buttons",
+                  text: "ดูข้อมูลรายจ่ายทั้งหมด",
+                  actions: [
+                    { type: "uri", label: "📊 ดู Dashboard", uri: dashboardUrl },
+                  ],
+                },
+              },
+            ], accessToken);
+          } else {
+            await replyToLine(replyToken, [{
+              type: "text",
+              text: helpText,
+            }], accessToken);
+          }
         }
       }
     }
