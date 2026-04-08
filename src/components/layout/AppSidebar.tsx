@@ -14,22 +14,35 @@ import {
 } from '@/components/ui/sidebar';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/hooks/useAuth';
+import { useLineAuth } from '@/contexts/LineAuthContext';
 
-const navItems = [
+const adminNavItems = [
   { title: 'Dashboard', icon: LayoutDashboard, path: '/' },
   { title: 'Upload Slip', icon: Upload, path: '/upload' },
   { title: 'Export', icon: Download, path: '/export' },
   { title: 'Settings', icon: Settings, path: '/settings' },
 ];
 
+const userNavItems = [
+  { title: 'Dashboard', icon: LayoutDashboard, path: '/' },
+];
+
 export function AppSidebar() {
   const location = useLocation();
   const navigate = useNavigate();
   const { user, isAuthenticated, signOut } = useAuth();
+  const { isLineUser, lineIdentity, clearLineIdentity } = useLineAuth();
+
+  const navItems = isLineUser ? userNavItems : adminNavItems;
 
   const handleSignOut = async () => {
-    await signOut();
-    navigate('/auth');
+    if (isLineUser) {
+      clearLineIdentity();
+      navigate('/auth');
+    } else {
+      await signOut();
+      navigate('/auth');
+    }
   };
 
   return (
@@ -41,7 +54,9 @@ export function AppSidebar() {
           </div>
           <div>
             <h1 className="text-base font-bold text-sidebar-foreground">SlipSync</h1>
-            <p className="text-xs text-sidebar-foreground/60">บันทึกรายจ่ายอัตโนมัติ</p>
+            <p className="text-xs text-sidebar-foreground/60">
+              {isLineUser ? 'รายจ่ายส่วนตัว' : 'บันทึกรายจ่ายอัตโนมัติ'}
+            </p>
           </div>
         </Link>
       </SidebarHeader>
@@ -70,11 +85,14 @@ export function AppSidebar() {
       </SidebarContent>
 
       <SidebarFooter className="p-4">
-        {isAuthenticated ? (
+        {(isAuthenticated || isLineUser) ? (
           <div className="space-y-2">
-            <div className="rounded-lg bg-sidebar-accent p-3">
+            <div className="rounded-lg bg-sidebar-accent p-3 flex items-center gap-2">
+              {isLineUser && lineIdentity?.pictureUrl && (
+                <img src={lineIdentity.pictureUrl} alt="" className="h-8 w-8 rounded-full" />
+              )}
               <p className="text-xs text-sidebar-accent-foreground/90 font-medium truncate">
-                {user?.email}
+                {isLineUser ? lineIdentity?.displayName : user?.email}
               </p>
             </div>
             <Button
