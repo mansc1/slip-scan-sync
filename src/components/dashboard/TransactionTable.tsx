@@ -29,9 +29,11 @@ interface TransactionTableProps {
   transactions: Transaction[];
   onConfirm?: (id: string) => void;
   onIgnore?: (id: string) => void;
+  /** Hide source/debug columns for end users */
+  hideSystemColumns?: boolean;
 }
 
-export function TransactionTable({ transactions, onConfirm, onIgnore }: TransactionTableProps) {
+export function TransactionTable({ transactions, onConfirm, onIgnore, hideSystemColumns = false }: TransactionTableProps) {
   const navigate = useNavigate();
 
   const fmt = (n: number | null) =>
