@@ -2,6 +2,19 @@ import { useState, useEffect, useCallback } from 'react';
 import liff from '@line/liff';
 import { LIFF_ID } from '@/config/liff';
 
+interface LiffState {
+  isReady: boolean;
+  isLoggedIn: boolean;
+  isInClient: boolean;
+  lineUserId: string | null;
+  displayName: string | null;
+  pictureUrl: string | null;
+  idToken: string | null;
+  error: string | null;
+  login: () => void;
+  logout: () => void;
+}
+
 export function useLiff(): LiffState {
   const [isReady, setIsReady] = useState(false);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
