@@ -19,7 +19,7 @@ const queryClient = new QueryClient();
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, loading } = useAuth();
   if (loading) return <div className="flex min-h-screen items-center justify-center text-muted-foreground">กำลังโหลด...</div>;
-  // Allow demo mode when not authenticated - show demo data
+  if (!isAuthenticated) return <Navigate to="/auth" replace />;
   return <>{children}</>;
 }
 
