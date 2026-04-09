@@ -5,6 +5,8 @@ import { OverviewCards } from '@/components/dashboard/OverviewCards';
 import { TransactionTable } from '@/components/dashboard/TransactionTable';
 import { TransactionFilters } from '@/components/dashboard/TransactionFilters';
 import { SlipUploader } from '@/components/dashboard/SlipUploader';
+import { MonthlyExpenseChart } from '@/components/dashboard/MonthlyExpenseChart';
+import { CategoryBreakdown } from '@/components/dashboard/CategoryBreakdown';
 import { useMyTransactions } from '@/hooks/useMyTransactions';
 import { useConfirmTransaction, useIgnoreTransaction } from '@/hooks/useTransactions';
 import { useLineAuth } from '@/contexts/LineAuthContext';
@@ -88,6 +90,14 @@ const Index = () => {
         </div>
 
         <OverviewCards {...stats} />
+
+        {/* Charts — shown for LINE users; admins get them too */}
+        {transactions.length > 0 && (
+          <div className="grid gap-4 sm:grid-cols-2">
+            <MonthlyExpenseChart transactions={transactions} />
+            <CategoryBreakdown transactions={transactions} />
+          </div>
+        )}
 
         <div className={isAdmin ? 'grid gap-6 lg:grid-cols-3' : ''}>
           <div className={isAdmin ? 'lg:col-span-2 space-y-4' : 'space-y-4'}>
