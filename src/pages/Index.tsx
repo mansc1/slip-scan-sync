@@ -27,6 +27,24 @@ const Index = () => {
   const transactions = data?.transactions || [];
   const stats = data?.stats || { monthlyTotal: 0, yearlyTotal: 0, slipCountMonth: 0, pendingCount: 0 };
   const role = data?.role || (isLineUser ? 'line_user' : 'admin');
+  const tokenError = data?.tokenError;
+
+  // Show re-login prompt when token is expired/invalid
+  if (tokenError && isLineUser) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-background p-4">
+        <div className="text-center space-y-4 max-w-xs">
+          <p className="text-destructive font-medium">⚠️ {tokenError}</p>
+          <button
+            onClick={() => { window.location.href = '/liff/dashboard'; }}
+            className="inline-flex items-center rounded-md bg-[#06C755] px-6 py-2.5 text-sm font-medium text-white hover:bg-[#05b34d]"
+          >
+            เข้าสู่ระบบ LINE ใหม่
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   const confirmMutation = useConfirmTransaction();
   const ignoreMutation = useIgnoreTransaction();

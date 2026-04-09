@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 import { useLiff } from '@/hooks/useLiff';
 import { supabase } from '@/integrations/supabase/client';
+import { getFreshLineIdToken } from '@/lib/line-token';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -48,11 +49,16 @@ export default function LiffTransaction() {
   }, [isReady, isLoggedIn, idToken, id]);
 
   async function fetchTransaction() {
-    if (!id || !idToken) return;
+    const freshToken = getFreshLineIdToken(idToken);
+    if (!freshToken) {
+      setErrorMsg('เซสชันหมดอายุ กรุณาเข้าสู่ระบบ LINE ใหม่');
+      setViewState('error');
+      return;
+    }
 
     try {
       const { data, error } = await supabase.functions.invoke('liff-transaction', {
-        body: { transactionId: id, idToken },
+        body: { transactionId: id, idToken: freshToken },
       });
 
       if (error) {
@@ -94,11 +100,17 @@ export default function LiffTransaction() {
   }
 
   async function handleAction(action: 'confirm' | 'ignore' | 'update') {
-    if (!id || !idToken) return;
+    if (!id) return;
+    const freshToken = getFreshLineIdToken(idToken);
+    if (!freshToken) {
+      setErrorMsg('เซสชันหมดอายุ กรุณาเข้าสู่ระบบ LINE ใหม่');
+      setViewState('error');
+      return;
+    }
     setSaving(true);
 
     try {
-      const body: any = { action, transactionId: id, idToken };
+      const body: any = { action, transactionId: id, idToken: freshToken };
 
       if (action === 'update') {
         body.updates = {

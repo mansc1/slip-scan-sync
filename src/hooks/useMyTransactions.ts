@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { useLineAuth } from '@/contexts/LineAuthContext';
+import { getFreshLineIdToken } from '@/lib/line-token';
 import type { Transaction, ExpenseCategory, TransactionStatus } from '@/types';
 
 export type DashboardRole = 'admin' | 'line_user';
@@ -16,15 +17,10 @@ export interface DashboardData {
   };
   role: DashboardRole;
   displayName?: string;
+  /** Set when a token/auth error occurs — distinguishes from empty data */
+  tokenError?: string;
 }
 
-/**
- * Unified data hook for the dashboard.
- * - LINE user mode: sends idToken to my-transactions edge function for server-side verification
- * - Admin mode: queries Supabase directly via authenticated session
- *
- * Response shape is identical regardless of mode.
- */
 export function useMyTransactions(filters?: {
   search?: string;
   category?: ExpenseCategory;
@@ -33,24 +29,48 @@ export function useMyTransactions(filters?: {
   const { session } = useAuth();
   const { lineIdentity, isLineUser } = useLineAuth();
 
-  // Determine mode — LINE user takes explicit precedence when both exist
   const mode: DashboardRole = isLineUser ? 'line_user' : 'admin';
 
   return useQuery<DashboardData>({
     queryKey: ['my-transactions', mode, lineIdentity?.lineUserId, session?.user?.id, filters],
     queryFn: async (): Promise<DashboardData> => {
       if (mode === 'line_user' && lineIdentity) {
-        // LINE user mode — every request sends idToken for server-side verification
+        // Get fresh token — never rely solely on cached token
+        const freshToken = getFreshLineIdToken(lineIdentity.idToken);
+        if (!freshToken) {
+          return {
+            transactions: [],
+            stats: { monthlyTotal: 0, yearlyTotal: 0, slipCountMonth: 0, pendingCount: 0 },
+            role: 'line_user',
+            displayName: lineIdentity.displayName,
+            tokenError: 'ไม่สามารถรับ ID Token ได้ กรุณาเข้าสู่ระบบใหม่',
+          };
+        }
+
         const { data, error } = await supabase.functions.invoke('my-transactions', {
-          body: { idToken: lineIdentity.idToken },
+          body: { idToken: freshToken },
         });
 
         if (error) throw new Error(error.message || 'Failed to fetch transactions');
-        if (data?.error) throw new Error(data.error);
+
+        // Distinguish auth/token errors from empty data
+        if (data?.error) {
+          const errMsg = data.error as string;
+          if (errMsg.includes('Invalid LINE identity') || errMsg.includes('expired') || errMsg.includes('idToken')) {
+            return {
+              transactions: [],
+              stats: { monthlyTotal: 0, yearlyTotal: 0, slipCountMonth: 0, pendingCount: 0 },
+              role: 'line_user',
+              displayName: lineIdentity.displayName,
+              tokenError: 'เซสชันหมดอายุ กรุณาเข้าสู่ระบบ LINE ใหม่',
+            };
+          }
+          throw new Error(errMsg);
+        }
 
         let transactions = (data.transactions || []) as Transaction[];
 
-        // Apply client-side filters on the already-filtered response
+        // Client-side filters
         if (filters?.search) {
           const s = filters.search.toLowerCase();
           transactions = transactions.filter(t =>
@@ -76,7 +96,7 @@ export function useMyTransactions(filters?: {
         };
       }
 
-      // Admin mode — direct Supabase query with authenticated session
+      // Admin mode
       if (!session) {
         return { transactions: [], stats: { monthlyTotal: 0, yearlyTotal: 0, slipCountMonth: 0, pendingCount: 0 }, role: 'admin' };
       }
@@ -99,7 +119,6 @@ export function useMyTransactions(filters?: {
 
       const txs = (data as unknown as Transaction[]) || [];
 
-      // Compute stats
       const now = new Date();
       const currentMonth = now.getMonth();
       const currentYear = now.getFullYear();
