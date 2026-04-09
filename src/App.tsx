@@ -13,6 +13,7 @@ import Upload from "./pages/Upload";
 import Export from "./pages/Export";
 import SettingsPage from "./pages/SettingsPage";
 import Auth from "./pages/Auth";
+import AdminLogin from "./pages/AdminLogin";
 import LiffTransaction from "./pages/LiffTransaction";
 import LiffDashboard from "./pages/LiffDashboard";
 import NotFound from "./pages/NotFound";
@@ -37,7 +38,7 @@ function ProtectedRoute({ children, adminOnly = false }: { children: React.React
   // Admin access via Supabase auth
   if (isAuthenticated) return <>{children}</>;
 
-  return <Navigate to="/auth" replace />;
+  return <Navigate to={adminOnly ? "/admin/login" : "/auth"} replace />;
 }
 
 function AuthRoute({ children }: { children: React.ReactNode }) {
@@ -49,7 +50,8 @@ function AuthRoute({ children }: { children: React.ReactNode }) {
 
 const AppRoutes = () => (
   <Routes>
-    <Route path="/auth" element={<AuthRoute><Auth /></AuthRoute>} />
+    <Route path="/auth" element={<Auth />} />
+    <Route path="/admin/login" element={<AuthRoute><AdminLogin /></AuthRoute>} />
     <Route path="/" element={<ProtectedRoute><Index /></ProtectedRoute>} />
     <Route path="/transactions/:id" element={<ProtectedRoute><TransactionDetail /></ProtectedRoute>} />
     <Route path="/transactions/:id/edit" element={<ProtectedRoute adminOnly><TransactionEdit /></ProtectedRoute>} />
