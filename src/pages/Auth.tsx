@@ -13,7 +13,7 @@ export default function Auth() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
-  const [lineLoading, setLineLoading] = useState(false);
+  
 
   const handleLineLogin = () => {
     // Skip LIFF init here — let /liff/dashboard handle everything
