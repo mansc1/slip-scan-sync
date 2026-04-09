@@ -11,8 +11,8 @@ import TransactionDetail from "./pages/TransactionDetail";
 import TransactionEdit from "./pages/TransactionEdit";
 import Upload from "./pages/Upload";
 import Export from "./pages/Export";
-import SettingsPage from "./pages/SettingsPage";
 import Auth from "./pages/Auth";
+import AdminLogin from "./pages/AdminLogin";
 import LiffTransaction from "./pages/LiffTransaction";
 import LiffDashboard from "./pages/LiffDashboard";
 import NotFound from "./pages/NotFound";
@@ -37,7 +37,7 @@ function ProtectedRoute({ children, adminOnly = false }: { children: React.React
   // Admin access via Supabase auth
   if (isAuthenticated) return <>{children}</>;
 
-  return <Navigate to="/auth" replace />;
+  return <Navigate to={adminOnly ? "/admin/login" : "/auth"} replace />;
 }
 
 function AuthRoute({ children }: { children: React.ReactNode }) {
