@@ -23,6 +23,12 @@ function ProtectedRoute({ children, adminOnly = false }: { children: React.React
   const { isAuthenticated, loading } = useAuth();
   const { isLineUser } = useLineAuth();
 
+  // LIFF OAuth callback: let LIFF SDK process liff.state before auth check
+  const hasLiffState = new URLSearchParams(window.location.search).has('liff.state');
+  if (hasLiffState) {
+    return <LiffCallbackHandler />;
+  }
+
   if (loading) return <div className="flex min-h-screen items-center justify-center text-muted-foreground">กำลังโหลด...</div>;
 
   // LINE users can access dashboard but not admin-only routes
