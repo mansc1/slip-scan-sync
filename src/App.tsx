@@ -5,6 +5,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useAuth } from "@/hooks/useAuth";
 import { useLineAuth, LineAuthProvider } from "@/contexts/LineAuthContext";
+import LiffCallbackHandler from "@/components/LiffCallbackHandler";
 import Index from "./pages/Index";
 import TransactionDetail from "./pages/TransactionDetail";
 import TransactionEdit from "./pages/TransactionEdit";
@@ -21,6 +22,12 @@ const queryClient = new QueryClient();
 function ProtectedRoute({ children, adminOnly = false }: { children: React.ReactNode; adminOnly?: boolean }) {
   const { isAuthenticated, loading } = useAuth();
   const { isLineUser } = useLineAuth();
+
+  // LIFF OAuth callback: let LIFF SDK process liff.state before auth check
+  const hasLiffState = new URLSearchParams(window.location.search).has('liff.state');
+  if (hasLiffState) {
+    return <LiffCallbackHandler />;
+  }
 
   if (loading) return <div className="flex min-h-screen items-center justify-center text-muted-foreground">กำลังโหลด...</div>;
 
