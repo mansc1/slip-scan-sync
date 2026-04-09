@@ -1,63 +1,59 @@
-# Redesign `/auth` as Landing Page + Separate Admin Login
+# Fix: Web LIFF Dashboard Shows Zero Data Due to Expired ID Token
 
-## Overview
+## Root Cause
 
-Transform `/auth` from a back-office login screen into a user-facing landing page. Move admin login to `/admin/login`. Update routing accordingly.
+The `LiffDashboard` component captures `liff.getIDToken()` **once** during initialization and stores it in `LineAuthContext`. LINE ID tokens expire in ~10 minutes.
 
-## Changes
+- **Mobile (in-client)**: The LIFF SDK manages token refresh internally. `liff.getIDToken()` returns a valid token on each call.
+- **Web (external browser)**: The cached token in `LineAuthContext` expires. When `useMyTransactions` sends this stale token, the backend returns `"IdToken expired"` → the edge function returns an error → the hook gets zero results or throws.
 
-### 1. New `/auth` Landing Page (`src/pages/Auth.tsx` — rewrite)
+Evidence from edge function logs:
 
-Structure:
+```
+"LINE token verify failed: 400 {"error":"invalid_request","error_description":"IdToken expired."}"
+```
 
-- **Hero**: SlipSync logo/icon, tagline "บันทึกรายจ่ายจากสลิปอัตโนมัติผ่าน LINE", supporting text about the 3-step flow
-- **New User Section** ("ผู้ใช้งานใหม่"):
-  - 3-step visual: เพิ่มเพื่อน → ส่งสลิป → ดู Dashboard
-  - CTA: "เริ่มใช้งานผ่าน LINE" button linking to LINE Official Account add-friend URL
-  - QR code placeholder area (visible on desktop, hidden on mobile where the button is primary)
-- **Existing User Section** ("ผู้ใช้งานเดิม"):
-  - "เปิด My Dashboard" → navigates to `/liff/dashboard`
-  - "เปิด LINE bot" → links to LINE OA chat
-- **Footer**: small "สำหรับผู้ดูแลระบบ" text link → `/admin/login`
-- Mobile-first, clean layout, no admin form visible
+This happens repeatedly in the web flow, while the mobile flow shows successful verification with the same `lineUserId`.
 
-### 2. New Admin Login Page (`src/pages/AdminLogin.tsx` — new file)
+## Fix (2 files)
 
-- Move the existing email/password form here
-- Title: "SlipSync Admin"
-- Same Supabase auth logic (signInWithPassword / signUp)
-- No LINE login button
-- Back link to `/auth`
+### 1. `useMyTransactions.ts` — Get fresh token before each request
 
-### 3. Routing Updates (`src/App.tsx`)
+Instead of using the cached `lineIdentity.idToken`, call `liff.getIDToken()` at request time to get the freshest available token. Fall back to the cached token if the SDK call fails.
 
-- `/auth` → landing page (no `AuthRoute` guard needed — it's public, but redirect authenticated admins to `/`)
-- `/admin/login` → `AdminLogin` wrapped in `AuthRoute` (redirect if already logged in)
-- `ProtectedRoute` redirect target stays `/auth` (landing page)
+```typescript
+// Before each API call:
+const freshToken = liff.getIDToken() || lineIdentity.idToken;
+```
 
-### 4. LINE OA Configuration
+### 2. `LiffDashboard.tsx` — No structural change needed
 
-- Will use placeholder QR code image and LINE OA URL. The user can replace the QR image and URL with their actual LINE Official Account details.
-- LINE OA add-friend URL format: `https://line.me/R/ti/p/@{LINE_OA_ID}` — will add a config constant.
+The initial token capture is fine for bootstrapping. The fix is in the data-fetching layer.
 
 ## Files
 
 
-| File                       | Action                                   |
-| -------------------------- | ---------------------------------------- |
-| `src/pages/Auth.tsx`       | Rewrite as landing page                  |
-| `src/pages/AdminLogin.tsx` | New — admin email/password login         |
-| `src/App.tsx`              | Add `/admin/login` route, update imports |
-| `src/config/liff.ts`       | Add LINE OA URL constant                 |
+| File                             | Change                                                              |
+| -------------------------------- | ------------------------------------------------------------------- |
+| `src/hooks/useMyTransactions.ts` | Call `liff.getIDToken()` fresh before each edge function invocation |
 
 
-## Technical Notes
+## Why This Works
 
-- No database changes needed
-- No edge function changes
-- Admin auth logic unchanged, just relocated
-- `AuthRoute` wrapper on `/admin/login` prevents double-login
-- Landing page is fully public — no auth guard  
+- `liff.getIDToken()` in the web external browser returns the current token from the SDK's internal state. If the SDK has refreshed it (e.g., after re-init), it returns the new one.
+- In-client, the SDK always manages refresh automatically.
+- The cached token in context remains as a fallback and for display name / profile info.
+- No backend changes needed — the same verification logic works with a fresh token.  
 
 
-Also make sure admin-only routes redirect to `/admin/login`, while general unauthenticated user-facing routes remain on `/auth`.
+Approve, with these additions:
+
+1. If `liff.getIDToken()` returns null or an expired/invalid token response still happens, show a clear re-login / retry state instead of silently showing empty data.
+
+2. Do not treat token verification failure as “zero transactions”; distinguish:
+
+   - empty data
+
+   - auth/token error
+
+3. Reuse the same fresh-token logic for all LINE-user edge-function calls, not only `my-transactions`, so dashboard and transaction-detail flows stay consistent.
