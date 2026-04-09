@@ -22,11 +22,22 @@ export default function LiffDashboard() {
       return;
     }
 
+    // Detect if we already came back from LINE login
+    const urlParams = new URLSearchParams(window.location.search);
+    const isRedirected = urlParams.get('from') === 'line';
+
     liff.init({ liffId: LIFF_ID })
       .then(async () => {
         if (!liff.isLoggedIn()) {
-          // Redirect to LINE login — will come back to this page
-          liff.login({ redirectUri: window.location.href });
+          if (isRedirected) {
+            // We already redirected once — login failed, don't loop
+            setErrorMsg('LINE login ไม่สำเร็จ กรุณาลองใหม่อีกครั้ง');
+            setState('error');
+            return;
+          }
+          // First attempt — redirect to LINE login with marker
+          const redirectUri = `${window.location.origin}/liff/dashboard?from=line`;
+          liff.login({ redirectUri });
           return;
         }
 

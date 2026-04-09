@@ -17,25 +17,10 @@ export default function Auth() {
   const [loading, setLoading] = useState(false);
   const [lineLoading, setLineLoading] = useState(false);
 
-  const handleLineLogin = async () => {
-    if (!LIFF_ID) {
-      toast.error('LINE Login ยังไม่ได้ตั้งค่า');
-      return;
-    }
-    setLineLoading(true);
-    try {
-      await liff.init({ liffId: LIFF_ID });
-      if (!liff.isLoggedIn()) {
-        liff.login({ redirectUri: window.location.origin + '/liff/dashboard' });
-      } else {
-        // Already logged in via LIFF — redirect to LIFF dashboard
-        window.location.href = '/liff/dashboard';
-      }
-    } catch (err: any) {
-      console.error('LINE Login error:', err);
-      toast.error('ไม่สามารถเชื่อมต่อ LINE ได้');
-      setLineLoading(false);
-    }
+  const handleLineLogin = () => {
+    // Skip LIFF init here — let /liff/dashboard handle everything
+    // This avoids double-init issues and keeps LiffDashboard as the single entry point
+    window.location.href = '/liff/dashboard';
   };
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
