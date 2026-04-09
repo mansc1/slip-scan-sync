@@ -8,3 +8,9 @@
  *   export const LIFF_ID = import.meta.env.VITE_LIFF_ID || '';
  */
 export const LIFF_ID = '2009744342-EEYFZAXY';
+
+/**
+ * LINE Official Account add-friend URL.
+ * Replace with your actual LINE OA ID (e.g. @slipsync).
+ */
+export const LINE_OA_URL = 'https://line.me/R/ti/p/@slipsync';
