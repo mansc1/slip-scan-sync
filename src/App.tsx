@@ -5,6 +5,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useAuth } from "@/hooks/useAuth";
 import { useLineAuth, LineAuthProvider } from "@/contexts/LineAuthContext";
+import LiffCallbackHandler from "@/components/LiffCallbackHandler";
 import Index from "./pages/Index";
 import TransactionDetail from "./pages/TransactionDetail";
 import TransactionEdit from "./pages/TransactionEdit";
