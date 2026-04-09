@@ -87,6 +87,15 @@ export default function LiffDashboard() {
         <div className="text-center space-y-3">
           <p className="text-destructive font-medium">❌ {errorMsg}</p>
           <p className="text-muted-foreground text-sm">กรุณาลองเปิดใหม่จาก LINE</p>
+          <button
+            onClick={() => {
+              // Clear marker and retry
+              window.location.href = '/liff/dashboard';
+            }}
+            className="mt-2 inline-flex items-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+          >
+            ลองใหม่
+          </button>
         </div>
       </div>
     );

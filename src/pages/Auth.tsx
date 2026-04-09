@@ -7,8 +7,6 @@ import { Label } from '@/components/ui/label';
 import { Separator } from '@/components/ui/separator';
 import { toast } from 'sonner';
 import { Loader2 } from 'lucide-react';
-import liff from '@line/liff';
-import { LIFF_ID } from '@/config/liff';
 
 export default function Auth() {
   const [isLogin, setIsLogin] = useState(true);
