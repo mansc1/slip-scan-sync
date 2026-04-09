@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 import { useLiff } from '@/hooks/useLiff';
 import { supabase } from '@/integrations/supabase/client';
+import { getFreshLineIdToken } from '@/lib/line-token';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
