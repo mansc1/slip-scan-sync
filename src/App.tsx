@@ -50,7 +50,8 @@ function AuthRoute({ children }: { children: React.ReactNode }) {
 
 const AppRoutes = () => (
   <Routes>
-    <Route path="/auth" element={<AuthRoute><Auth /></AuthRoute>} />
+    <Route path="/auth" element={<Auth />} />
+    <Route path="/admin/login" element={<AuthRoute><AdminLogin /></AuthRoute>} />
     <Route path="/" element={<ProtectedRoute><Index /></ProtectedRoute>} />
     <Route path="/transactions/:id" element={<ProtectedRoute><TransactionDetail /></ProtectedRoute>} />
     <Route path="/transactions/:id/edit" element={<ProtectedRoute adminOnly><TransactionEdit /></ProtectedRoute>} />
