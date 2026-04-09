@@ -26,10 +26,10 @@ export default function Auth() {
     try {
       await liff.init({ liffId: LIFF_ID });
       if (!liff.isLoggedIn()) {
-        liff.login({ redirectUri: window.location.origin });
+        liff.login({ redirectUri: window.location.origin + '/liff/dashboard' });
       } else {
-        // Already logged in via LIFF — redirect to home
-        window.location.href = '/';
+        // Already logged in via LIFF — redirect to LIFF dashboard
+        window.location.href = '/liff/dashboard';
       }
     } catch (err: any) {
       console.error('LINE Login error:', err);
