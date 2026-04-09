@@ -51,7 +51,18 @@ export function useMyTransactions(filters?: {
           body: { idToken: freshToken },
         });
 
-        if (error) throw new Error(error.message || 'Failed to fetch transactions');
+        if (error) {
+          // supabase.functions.invoke returns error (not data) for non-2xx responses.
+          // In LINE user mode, this is almost always a token expiry (401).
+          // Return tokenError so the UI shows a re-login prompt instead of empty data.
+          return {
+            transactions: [],
+            stats: { monthlyTotal: 0, yearlyTotal: 0, slipCountMonth: 0, pendingCount: 0 },
+            role: 'line_user' as DashboardRole,
+            displayName: lineIdentity.displayName,
+            tokenError: 'เซสชันหมดอายุ กรุณาเข้าสู่ระบบ LINE ใหม่',
+          };
+        }
 
         // Distinguish auth/token errors from empty data
         if (data?.error) {
