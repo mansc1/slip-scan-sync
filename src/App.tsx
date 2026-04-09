@@ -11,6 +11,7 @@ import TransactionDetail from "./pages/TransactionDetail";
 import TransactionEdit from "./pages/TransactionEdit";
 import Upload from "./pages/Upload";
 import Export from "./pages/Export";
+import SettingsPage from "./pages/SettingsPage";
 import Auth from "./pages/Auth";
 import AdminLogin from "./pages/AdminLogin";
 import LiffTransaction from "./pages/LiffTransaction";
