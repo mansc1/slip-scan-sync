@@ -22,11 +22,22 @@ export default function LiffDashboard() {
       return;
     }
 
+    // Detect if we already came back from LINE login
+    const urlParams = new URLSearchParams(window.location.search);
+    const isRedirected = urlParams.get('from') === 'line';
+
     liff.init({ liffId: LIFF_ID })
       .then(async () => {
         if (!liff.isLoggedIn()) {
-          // Redirect to LINE login — will come back to this page
-          liff.login({ redirectUri: window.location.href });
+          if (isRedirected) {
+            // We already redirected once — login failed, don't loop
+            setErrorMsg('LINE login ไม่สำเร็จ กรุณาลองใหม่อีกครั้ง');
+            setState('error');
+            return;
+          }
+          // First attempt — redirect to LINE login with marker
+          const redirectUri = `${window.location.origin}/liff/dashboard?from=line`;
+          liff.login({ redirectUri });
           return;
         }
 
@@ -76,6 +87,15 @@ export default function LiffDashboard() {
         <div className="text-center space-y-3">
           <p className="text-destructive font-medium">❌ {errorMsg}</p>
           <p className="text-muted-foreground text-sm">กรุณาลองเปิดใหม่จาก LINE</p>
+          <button
+            onClick={() => {
+              // Clear marker and retry
+              window.location.href = '/liff/dashboard';
+            }}
+            className="mt-2 inline-flex items-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+          >
+            ลองใหม่
+          </button>
         </div>
       </div>
     );
