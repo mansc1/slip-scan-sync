@@ -82,8 +82,20 @@ const Index = () => {
   const confirmMutation = useConfirmTransaction();
   const updateMutation = useUpdateTransaction();
   const cancelMutation = useCancelTransaction();
+  const liffAction = useLiffAction();
 
   const handleConfirm = (id: string) => {
+    if (isLineUser) {
+      const tx = allTransactions.find(t => t.id === id);
+      liffAction.mutate(
+        { action: 'confirm', transactionId: id },
+        {
+          onSuccess: () => toast.success('ยืนยันรายการแล้ว'),
+          onError: () => toast.error('เกิดข้อผิดพลาด'),
+        }
+      );
+      return;
+    }
     const tx = allTransactions.find(t => t.id === id);
     confirmMutation.mutate(
       { id, categoryFinal: tx?.category_guess || undefined },
@@ -98,6 +110,16 @@ const Index = () => {
   };
 
   const handleEdit = (id: string, updates: Record<string, unknown>) => {
+    if (isLineUser) {
+      liffAction.mutate(
+        { action: 'update', transactionId: id, updates },
+        {
+          onSuccess: () => toast.success('บันทึกแล้ว'),
+          onError: () => toast.error('เกิดข้อผิดพลาด'),
+        }
+      );
+      return;
+    }
     updateMutation.mutate(
       { id, updates: updates as any },
       {
@@ -111,6 +133,16 @@ const Index = () => {
   };
 
   const handleCancel = (id: string) => {
+    if (isLineUser) {
+      liffAction.mutate(
+        { action: 'cancel', transactionId: id },
+        {
+          onSuccess: () => toast.success('ยกเลิกรายการแล้ว'),
+          onError: () => toast.error('เกิดข้อผิดพลาด'),
+        }
+      );
+      return;
+    }
     cancelMutation.mutate(id, {
       onSuccess: () => {
         toast.success('ยกเลิกรายการแล้ว');
@@ -119,6 +151,8 @@ const Index = () => {
       onError: () => toast.error('เกิดข้อผิดพลาด'),
     });
   };
+
+  const isMutating = isLineUser ? liffAction.isPending : false;
 
   const isAdmin = role === 'admin';
 
