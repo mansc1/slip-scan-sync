@@ -1,5 +1,6 @@
 export type TransactionStatus = 'pending_confirmation' | 'confirmed' | 'ignored' | 'editing' | 'extraction_failed' | 'cancelled';
 export type TransactionType = 'transfer' | 'bill_payment' | 'merchant_payment' | 'qr_payment' | 'other';
+export type PaymentMethod = 'cash' | 'transfer' | 'card' | 'other';
 export type PaymentStatus = 'success' | 'failed' | 'pending' | 'unknown';
 export type ExpenseCategory = 'food' | 'transport' | 'shopping' | 'bills' | 'health' | 'entertainment' | 'education' | 'travel' | 'home' | 'family' | 'transfer' | 'other';
 export type SyncStatus = 'pending' | 'synced' | 'failed' | 'not_applicable';
@@ -38,6 +39,7 @@ export interface Transaction {
   drive_sync_status: SyncStatus | null;
   notes: string | null;
   source: string | null;
+  payment_method: string | null;
   created_at: string;
   updated_at: string;
 }
