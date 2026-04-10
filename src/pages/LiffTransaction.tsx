@@ -8,9 +8,9 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
-import { EXPENSE_CATEGORIES, type ExpenseCategory, type TransactionType } from '@/types';
+import { EXPENSE_CATEGORIES, type ExpenseCategory, type TransactionType, type PaymentMethod } from '@/types';
 import { CancelTransactionDialog } from '@/components/transactions/CancelTransactionDialog';
-import { type TransactionEditValues, getDefaultEditValues, buildUpdatePayload } from '@/components/transactions/transactionFields';
+import { type TransactionEditValues, getDefaultEditValues, buildUpdatePayload, PAYMENT_METHODS } from '@/components/transactions/transactionFields';
 import { Check, X, Pencil, Loader2, AlertTriangle, ShieldX, CheckCircle2, Ban } from 'lucide-react';
 
 const TRANSACTION_TYPES: { value: TransactionType; label: string }[] = [
