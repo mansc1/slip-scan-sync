@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useQueryClient } from '@tanstack/react-query';
+import { useQueryClient, useMutation } from '@tanstack/react-query';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { OverviewCards } from '@/components/dashboard/OverviewCards';
 import { TransactionTable } from '@/components/dashboard/TransactionTable';
@@ -10,8 +10,31 @@ import { CategoryBreakdown } from '@/components/dashboard/CategoryBreakdown';
 import { useMyTransactions } from '@/hooks/useMyTransactions';
 import { useConfirmTransaction, useUpdateTransaction, useCancelTransaction } from '@/hooks/useTransactions';
 import { useLineAuth } from '@/contexts/LineAuthContext';
+import { supabase } from '@/integrations/supabase/client';
+import { getFreshLineIdToken } from '@/lib/line-token';
 import { toast } from 'sonner';
 import type { ExpenseCategory, TransactionStatus } from '@/types';
+
+/** Calls liff-action edge function for LINE user mutations */
+function useLiffAction() {
+  const { lineIdentity } = useLineAuth();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ action, transactionId, updates }: { action: string; transactionId: string; updates?: Record<string, unknown> }) => {
+      const idToken = getFreshLineIdToken(lineIdentity?.idToken);
+      if (!idToken) throw new Error('No LINE token');
+      const { data, error } = await supabase.functions.invoke('liff-action', {
+        body: { action, transactionId, idToken, updates },
+      });
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error);
+      return data;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['my-transactions'] });
+    },
+  });
+}
 
 const Index = () => {
   const queryClient = useQueryClient();
