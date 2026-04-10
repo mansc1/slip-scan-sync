@@ -74,12 +74,13 @@ serve(async (req) => {
 
     const txs = transactions || [];
 
-    // Compute stats
+    // Exclude cancelled from stats (but still return them for filtering)
+    const nonCancelled = txs.filter((t: any) => t.status !== "cancelled");
     const now = new Date();
     const currentMonth = now.getMonth();
     const currentYear = now.getFullYear();
 
-    const confirmed = txs.filter((t: any) => t.status === "confirmed");
+    const confirmed = nonCancelled.filter((t: any) => t.status === "confirmed");
 
     const thisMonth = confirmed.filter((t: any) => {
       if (!t.transaction_datetime_iso) return false;
@@ -92,7 +93,7 @@ serve(async (req) => {
       return new Date(t.transaction_datetime_iso).getFullYear() === currentYear;
     });
 
-    const pendingCount = txs.filter((t: any) => t.status === "pending_confirmation").length;
+    const pendingCount = nonCancelled.filter((t: any) => t.status === "pending_confirmation").length;
 
     const stats = {
       monthlyTotal: thisMonth.reduce((sum: number, t: any) => sum + (t.amount || 0), 0),

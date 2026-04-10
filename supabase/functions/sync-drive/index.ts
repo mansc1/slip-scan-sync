@@ -109,6 +109,13 @@ serve(async (req) => {
       });
     }
 
+    // Do not sync cancelled transactions
+    if (tx.status === "cancelled") {
+      return new Response(JSON.stringify({ skipped: true, reason: "cancelled" }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     if (!tx.source_image_url) {
       await supabase.from("transactions").update({ drive_sync_status: "failed" }).eq("id", transaction_id);
       return new Response(JSON.stringify({ error: "No image to upload" }), {

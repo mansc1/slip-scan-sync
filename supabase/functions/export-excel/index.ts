@@ -41,6 +41,7 @@ serve(async (req) => {
       .from("transactions")
       .select("*")
       .eq("status", "confirmed")
+      .neq("status", "cancelled")
       .gte("created_at", startDate)
       .lt("created_at", endDate)
       .order("created_at", { ascending: true });

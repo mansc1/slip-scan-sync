@@ -8,10 +8,20 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
-import { EXPENSE_CATEGORIES, type ExpenseCategory } from '@/types';
-import { Check, X, Pencil, Loader2, AlertTriangle, ShieldX, CheckCircle2 } from 'lucide-react';
+import { EXPENSE_CATEGORIES, type ExpenseCategory, type TransactionType } from '@/types';
+import { CancelTransactionDialog } from '@/components/transactions/CancelTransactionDialog';
+import { type TransactionEditValues, getDefaultEditValues, buildUpdatePayload } from '@/components/transactions/transactionFields';
+import { Check, X, Pencil, Loader2, AlertTriangle, ShieldX, CheckCircle2, Ban } from 'lucide-react';
 
-type ViewState = 'loading' | 'login_required' | 'not_found' | 'no_permission' | 'already_finalized' | 'ready' | 'editing' | 'success' | 'error';
+const TRANSACTION_TYPES: { value: TransactionType; label: string }[] = [
+  { value: 'transfer', label: 'โอนเงิน' },
+  { value: 'bill_payment', label: 'ชำระบิล' },
+  { value: 'merchant_payment', label: 'จ่ายร้านค้า' },
+  { value: 'qr_payment', label: 'QR Payment' },
+  { value: 'other', label: 'อื่นๆ' },
+];
+
+type ViewState = 'loading' | 'login_required' | 'not_found' | 'no_permission' | 'cancelled' | 'ready' | 'editing' | 'success' | 'error';
 
 export default function LiffTransaction() {
   const { id } = useParams<{ id: string }>();
@@ -22,51 +32,32 @@ export default function LiffTransaction() {
   const [finalStatus, setFinalStatus] = useState<string>('');
   const [errorMsg, setErrorMsg] = useState('');
   const [saving, setSaving] = useState(false);
+  const [cancelOpen, setCancelOpen] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
 
-  // Edit form state
-  const [editAmount, setEditAmount] = useState('');
-  const [editMerchant, setEditMerchant] = useState('');
-  const [editCategory, setEditCategory] = useState<ExpenseCategory>('other');
-  const [editDate, setEditDate] = useState('');
-  const [editTime, setEditTime] = useState('');
-  const [editNotes, setEditNotes] = useState('');
+  // Edit form state — uses shared schema
+  const [editValues, setEditValues] = useState<TransactionEditValues>({
+    amount: '', date_display: '', time_display: '', merchant_name: '',
+    category_final: 'other', transaction_type: 'other', notes: '',
+  });
 
   useEffect(() => {
     if (!isReady) return;
-
-    if (liffError) {
-      setErrorMsg(liffError);
-      setViewState('error');
-      return;
-    }
-
-    if (!isLoggedIn || !idToken) {
-      setViewState('login_required');
-      return;
-    }
-
+    if (liffError) { setErrorMsg(liffError); setViewState('error'); return; }
+    if (!isLoggedIn || !idToken) { setViewState('login_required'); return; }
     fetchTransaction();
   }, [isReady, isLoggedIn, idToken, id]);
 
   async function fetchTransaction() {
     const freshToken = getFreshLineIdToken(idToken);
-    if (!freshToken) {
-      setErrorMsg('เซสชันหมดอายุ กรุณาเข้าสู่ระบบ LINE ใหม่');
-      setViewState('error');
-      return;
-    }
+    if (!freshToken) { setErrorMsg('เซสชันหมดอายุ กรุณาเข้าสู่ระบบ LINE ใหม่'); setViewState('error'); return; }
 
     try {
       const { data, error } = await supabase.functions.invoke('liff-transaction', {
         body: { transactionId: id, idToken: freshToken },
       });
 
-      if (error) {
-        setErrorMsg('ไม่สามารถโหลดรายการได้');
-        setViewState('error');
-        return;
-      }
-
+      if (error) { setErrorMsg('ไม่สามารถโหลดรายการได้'); setViewState('error'); return; }
       if (data.error) {
         if (data.error.includes('not found')) setViewState('not_found');
         else if (data.error.includes('สิทธิ์')) setViewState('no_permission');
@@ -77,74 +68,42 @@ export default function LiffTransaction() {
       const tx = data.transaction;
       setTransaction(tx);
 
-      if (tx.status === 'confirmed' || tx.status === 'ignored') {
-        setFinalStatus(tx.status);
-        setViewState('already_finalized');
+      if (tx.status === 'cancelled') {
+        setViewState('cancelled');
       } else {
-        populateEditForm(tx);
+        setEditValues(getDefaultEditValues(tx));
         setViewState('ready');
       }
-    } catch (e: any) {
-      setErrorMsg(e.message);
-      setViewState('error');
-    }
+    } catch (e: any) { setErrorMsg(e.message); setViewState('error'); }
   }
 
-  function populateEditForm(tx: any) {
-    setEditAmount(tx.amount?.toString() || '');
-    setEditMerchant(tx.merchant_name || '');
-    setEditCategory((tx.category_final || tx.category_guess || 'other') as ExpenseCategory);
-    setEditDate(tx.date_display || '');
-    setEditTime(tx.time_display || '');
-    setEditNotes(tx.notes || '');
-  }
-
-  async function handleAction(action: 'confirm' | 'ignore' | 'update') {
+  async function handleAction(action: 'confirm' | 'update' | 'cancel') {
     if (!id) return;
     const freshToken = getFreshLineIdToken(idToken);
-    if (!freshToken) {
-      setErrorMsg('เซสชันหมดอายุ กรุณาเข้าสู่ระบบ LINE ใหม่');
-      setViewState('error');
-      return;
-    }
-    setSaving(true);
+    if (!freshToken) { setErrorMsg('เซสชันหมดอายุ กรุณาเข้าสู่ระบบ LINE ใหม่'); setViewState('error'); return; }
+    
+    if (action === 'cancel') setCancelling(true);
+    else setSaving(true);
 
     try {
       const body: any = { action, transactionId: id, idToken: freshToken };
-
       if (action === 'update') {
-        body.updates = {
-          amount: parseFloat(editAmount) || null,
-          merchant_name: editMerchant || null,
-          category_final: editCategory,
-          date_display: editDate || null,
-          time_display: editTime || null,
-          notes: editNotes || null,
-        };
+        body.updates = buildUpdatePayload(editValues);
       }
 
       const { data, error } = await supabase.functions.invoke('liff-action', { body });
 
       if (error || data?.error) {
-        if (data?.already_finalized) {
-          setFinalStatus(data.status);
-          setViewState('already_finalized');
-        } else {
-          setErrorMsg(data?.error || 'เกิดข้อผิดพลาด');
-          setViewState('error');
-        }
+        setErrorMsg(data?.error || 'เกิดข้อผิดพลาด');
+        setViewState('error');
         return;
       }
 
       setTransaction(data.transaction);
-      setFinalStatus(action === 'ignore' ? 'ignored' : 'confirmed');
+      setFinalStatus(action === 'cancel' ? 'cancelled' : 'confirmed');
       setViewState('success');
-    } catch (e: any) {
-      setErrorMsg(e.message);
-      setViewState('error');
-    } finally {
-      setSaving(false);
-    }
+    } catch (e: any) { setErrorMsg(e.message); setViewState('error'); }
+    finally { setSaving(false); setCancelling(false); setCancelOpen(false); }
   }
 
   // --- Render states ---
@@ -199,14 +158,12 @@ export default function LiffTransaction() {
     );
   }
 
-  if (viewState === 'already_finalized') {
+  if (viewState === 'cancelled') {
     return (
       <div className="flex min-h-screen items-center justify-center bg-background px-4">
         <div className="text-center space-y-3">
-          <CheckCircle2 className="h-12 w-12 text-primary mx-auto" />
-          <h1 className="text-lg font-semibold text-foreground">
-            {finalStatus === 'confirmed' ? 'รายการนี้ยืนยันแล้ว' : 'รายการนี้ถูกข้ามแล้ว'}
-          </h1>
+          <Ban className="h-12 w-12 text-destructive mx-auto" />
+          <h1 className="text-lg font-semibold text-foreground">รายการนี้ถูกยกเลิกแล้ว</h1>
           {transaction && (
             <div className="text-sm text-muted-foreground space-y-1">
               <p>💰 {transaction.amount?.toLocaleString() || '?'} {transaction.currency || 'THB'}</p>
@@ -224,9 +181,9 @@ export default function LiffTransaction() {
         <div className="text-center space-y-3">
           <CheckCircle2 className="h-12 w-12 text-primary mx-auto" />
           <h1 className="text-lg font-semibold text-foreground">
-            {finalStatus === 'ignored' ? 'ข้ามรายการแล้ว' : 'บันทึกสำเร็จ!'}
+            {finalStatus === 'cancelled' ? 'ยกเลิกรายการแล้ว' : 'บันทึกสำเร็จ!'}
           </h1>
-          {transaction && finalStatus !== 'ignored' && (
+          {transaction && finalStatus !== 'cancelled' && (
             <div className="text-sm text-muted-foreground space-y-1">
               <p>💰 {transaction.amount?.toLocaleString() || '?'} {transaction.currency || 'THB'}</p>
               {transaction.merchant_name && <p>🏪 {transaction.merchant_name}</p>}
@@ -287,19 +244,19 @@ export default function LiffTransaction() {
         </div>
 
         {viewState === 'editing' ? (
-          /* Edit form */
+          /* Edit form — uses shared field schema */
           <div className="space-y-3">
             <div className="space-y-1.5">
               <Label className="text-xs">จำนวนเงิน</Label>
-              <Input type="number" step="0.01" value={editAmount} onChange={e => setEditAmount(e.target.value)} />
+              <Input type="number" step="0.01" value={editValues.amount} onChange={e => setEditValues(v => ({ ...v, amount: e.target.value }))} />
             </div>
             <div className="space-y-1.5">
               <Label className="text-xs">ร้านค้า</Label>
-              <Input value={editMerchant} onChange={e => setEditMerchant(e.target.value)} />
+              <Input value={editValues.merchant_name} onChange={e => setEditValues(v => ({ ...v, merchant_name: e.target.value }))} />
             </div>
             <div className="space-y-1.5">
               <Label className="text-xs">หมวดหมู่</Label>
-              <Select value={editCategory} onValueChange={v => setEditCategory(v as ExpenseCategory)}>
+              <Select value={editValues.category_final} onValueChange={val => setEditValues(v => ({ ...v, category_final: val as ExpenseCategory }))}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
                   {EXPENSE_CATEGORIES.map(c => (
@@ -308,19 +265,30 @@ export default function LiffTransaction() {
                 </SelectContent>
               </Select>
             </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs">ประเภท</Label>
+              <Select value={editValues.transaction_type} onValueChange={val => setEditValues(v => ({ ...v, transaction_type: val as TransactionType }))}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {TRANSACTION_TYPES.map(t => (
+                    <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
             <div className="grid grid-cols-2 gap-2">
               <div className="space-y-1.5">
                 <Label className="text-xs">วันที่</Label>
-                <Input value={editDate} onChange={e => setEditDate(e.target.value)} />
+                <Input value={editValues.date_display} onChange={e => setEditValues(v => ({ ...v, date_display: e.target.value }))} />
               </div>
               <div className="space-y-1.5">
                 <Label className="text-xs">เวลา</Label>
-                <Input value={editTime} onChange={e => setEditTime(e.target.value)} />
+                <Input value={editValues.time_display} onChange={e => setEditValues(v => ({ ...v, time_display: e.target.value }))} />
               </div>
             </div>
             <div className="space-y-1.5">
               <Label className="text-xs">บันทึก</Label>
-              <Textarea value={editNotes} onChange={e => setEditNotes(e.target.value)} rows={2} />
+              <Textarea value={editValues.notes} onChange={e => setEditValues(v => ({ ...v, notes: e.target.value }))} rows={2} />
             </div>
 
             <div className="flex gap-2 pt-2">
@@ -336,21 +304,34 @@ export default function LiffTransaction() {
         ) : (
           /* Action buttons */
           <div className="space-y-2">
-            <Button onClick={() => handleAction('confirm')} disabled={saving} className="w-full h-12 text-base">
-              {saving ? <Loader2 className="h-5 w-5 animate-spin mr-2" /> : <Check className="h-5 w-5 mr-2" />}
-              ✅ ยืนยัน
-            </Button>
+            {tx?.status === 'pending_confirmation' && (
+              <Button onClick={() => handleAction('confirm')} disabled={saving} className="w-full h-12 text-base">
+                {saving ? <Loader2 className="h-5 w-5 animate-spin mr-2" /> : <Check className="h-5 w-5 mr-2" />}
+                ✅ ยืนยัน
+              </Button>
+            )}
             <Button variant="outline" onClick={() => setViewState('editing')} className="w-full h-12 text-base">
               <Pencil className="h-5 w-5 mr-2" />
               ✏️ แก้ไข
             </Button>
-            <Button variant="destructive" onClick={() => handleAction('ignore')} disabled={saving} className="w-full h-12 text-base">
-              {saving ? <Loader2 className="h-5 w-5 animate-spin mr-2" /> : <X className="h-5 w-5 mr-2" />}
-              ❌ ข้าม
+            <Button variant="destructive" onClick={() => setCancelOpen(true)} className="w-full h-12 text-base">
+              <Ban className="h-5 w-5 mr-2" />
+              🚫 ยกเลิกรายการ
             </Button>
           </div>
         )}
       </div>
+
+      {/* Cancel confirmation dialog */}
+      {transaction && (
+        <CancelTransactionDialog
+          transaction={transaction}
+          open={cancelOpen}
+          onOpenChange={setCancelOpen}
+          onConfirmCancel={() => handleAction('cancel')}
+          cancelling={cancelling}
+        />
+      )}
     </div>
   );
 }

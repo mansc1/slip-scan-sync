@@ -86,6 +86,13 @@ serve(async (req) => {
       });
     }
 
+    // Do not sync cancelled transactions
+    if (tx.status === "cancelled") {
+      return new Response(JSON.stringify({ skipped: true, reason: "cancelled" }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     const accessToken = await getGoogleAccessToken(serviceAccountJson);
 
     const row = [

@@ -133,6 +133,27 @@ export function useIgnoreTransaction() {
   });
 }
 
+export function useCancelTransaction() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const { data, error } = await supabase
+        .from('transactions')
+        .update({ status: 'cancelled' as any })
+        .eq('id', id)
+        .select()
+        .single();
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['transactions'] });
+      qc.invalidateQueries({ queryKey: ['transaction'] });
+      qc.invalidateQueries({ queryKey: ['my-transactions'] });
+    },
+  });
+}
+
 export function useDashboardStats(transactions: Transaction[]) {
   const now = new Date();
   const currentMonth = now.getMonth();
