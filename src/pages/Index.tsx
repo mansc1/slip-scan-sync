@@ -8,7 +8,7 @@ import { SlipUploader } from '@/components/dashboard/SlipUploader';
 import { MonthlyExpenseChart } from '@/components/dashboard/MonthlyExpenseChart';
 import { CategoryBreakdown } from '@/components/dashboard/CategoryBreakdown';
 import { useMyTransactions } from '@/hooks/useMyTransactions';
-import { useConfirmTransaction, useIgnoreTransaction } from '@/hooks/useTransactions';
+import { useConfirmTransaction, useUpdateTransaction, useCancelTransaction } from '@/hooks/useTransactions';
 import { useLineAuth } from '@/contexts/LineAuthContext';
 import { toast } from 'sonner';
 import type { ExpenseCategory, TransactionStatus } from '@/types';
@@ -26,10 +26,18 @@ const Index = () => {
     status: status !== 'all' ? (status as TransactionStatus) : undefined,
   });
 
-  const transactions = data?.transactions || [];
+  const allTransactions = data?.transactions || [];
   const stats = data?.stats || { monthlyTotal: 0, yearlyTotal: 0, slipCountMonth: 0, pendingCount: 0 };
   const role = data?.role || (isLineUser ? 'line_user' : 'admin');
   const tokenError = data?.tokenError;
+
+  // Exclude cancelled from default view unless explicitly filtered
+  const transactions = status === 'cancelled'
+    ? allTransactions
+    : allTransactions.filter(t => t.status !== 'cancelled');
+
+  // Charts should only use non-cancelled confirmed transactions
+  const chartTransactions = allTransactions.filter(t => t.status !== 'cancelled');
 
   // Show re-login prompt when token is expired/invalid
   if (tokenError && isLineUser) {
@@ -49,10 +57,11 @@ const Index = () => {
   }
 
   const confirmMutation = useConfirmTransaction();
-  const ignoreMutation = useIgnoreTransaction();
+  const updateMutation = useUpdateTransaction();
+  const cancelMutation = useCancelTransaction();
 
   const handleConfirm = (id: string) => {
-    const tx = transactions.find(t => t.id === id);
+    const tx = allTransactions.find(t => t.id === id);
     confirmMutation.mutate(
       { id, categoryFinal: tx?.category_guess || undefined },
       {
@@ -65,10 +74,23 @@ const Index = () => {
     );
   };
 
-  const handleIgnore = (id: string) => {
-    ignoreMutation.mutate(id, {
+  const handleEdit = (id: string, updates: Record<string, unknown>) => {
+    updateMutation.mutate(
+      { id, updates: updates as any },
+      {
+        onSuccess: () => {
+          toast.success('บันทึกแล้ว');
+          queryClient.invalidateQueries({ queryKey: ['my-transactions'] });
+        },
+        onError: () => toast.error('เกิดข้อผิดพลาด'),
+      }
+    );
+  };
+
+  const handleCancel = (id: string) => {
+    cancelMutation.mutate(id, {
       onSuccess: () => {
-        toast.success('ข้ามรายการแล้ว');
+        toast.success('ยกเลิกรายการแล้ว');
         queryClient.invalidateQueries({ queryKey: ['my-transactions'] });
       },
       onError: () => toast.error('เกิดข้อผิดพลาด'),
@@ -91,11 +113,10 @@ const Index = () => {
 
         <OverviewCards {...stats} />
 
-        {/* Charts — shown for LINE users; admins get them too */}
-        {transactions.length > 0 && (
+        {chartTransactions.length > 0 && (
           <div className="grid gap-4 sm:grid-cols-2">
-            <MonthlyExpenseChart transactions={transactions} />
-            <CategoryBreakdown transactions={transactions} />
+            <MonthlyExpenseChart transactions={chartTransactions} />
+            <CategoryBreakdown transactions={chartTransactions} />
           </div>
         )}
 
@@ -112,7 +133,10 @@ const Index = () => {
             <TransactionTable
               transactions={transactions}
               onConfirm={handleConfirm}
-              onIgnore={handleIgnore}
+              onEdit={handleEdit}
+              onCancel={handleCancel}
+              editSaving={updateMutation.isPending}
+              cancelSaving={cancelMutation.isPending}
               hideSystemColumns={!isAdmin}
             />
           </div>

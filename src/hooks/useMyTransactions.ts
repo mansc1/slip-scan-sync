@@ -133,6 +133,7 @@ export function useMyTransactions(filters?: {
       const now = new Date();
       const currentMonth = now.getMonth();
       const currentYear = now.getFullYear();
+      // Exclude cancelled from stats
       const confirmed = txs.filter(t => t.status === 'confirmed');
       const thisMonth = confirmed.filter(t => {
         if (!t.transaction_datetime_iso) return false;
