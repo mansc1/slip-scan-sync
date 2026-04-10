@@ -7,12 +7,15 @@ import { TransactionFilters } from '@/components/dashboard/TransactionFilters';
 import { SlipUploader } from '@/components/dashboard/SlipUploader';
 import { MonthlyExpenseChart } from '@/components/dashboard/MonthlyExpenseChart';
 import { CategoryBreakdown } from '@/components/dashboard/CategoryBreakdown';
+import { TransactionEditDialog } from '@/components/transactions/TransactionEditDialog';
 import { useMyTransactions } from '@/hooks/useMyTransactions';
-import { useConfirmTransaction, useUpdateTransaction, useCancelTransaction } from '@/hooks/useTransactions';
+import { useConfirmTransaction, useUpdateTransaction, useCancelTransaction, useCreateTransaction } from '@/hooks/useTransactions';
 import { useLineAuth } from '@/contexts/LineAuthContext';
 import { supabase } from '@/integrations/supabase/client';
 import { getFreshLineIdToken } from '@/lib/line-token';
 import { toast } from 'sonner';
+import { Plus } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 import type { ExpenseCategory, TransactionStatus } from '@/types';
 
 /** Calls liff-action edge function for LINE user mutations */
@@ -20,7 +23,7 @@ function useLiffAction() {
   const { lineIdentity } = useLineAuth();
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async ({ action, transactionId, updates }: { action: string; transactionId: string; updates?: Record<string, unknown> }) => {
+    mutationFn: async ({ action, transactionId, updates }: { action: string; transactionId?: string; updates?: Record<string, unknown> }) => {
       const idToken = getFreshLineIdToken(lineIdentity?.idToken);
       if (!idToken) throw new Error('No LINE token');
       const { data, error } = await supabase.functions.invoke('liff-action', {
@@ -42,6 +45,7 @@ const Index = () => {
   const [search, setSearch] = useState('');
   const [category, setCategory] = useState('all');
   const [status, setStatus] = useState('all');
+  const [createOpen, setCreateOpen] = useState(false);
 
   const { data, isLoading } = useMyTransactions({
     search: search || undefined,
@@ -82,11 +86,11 @@ const Index = () => {
   const confirmMutation = useConfirmTransaction();
   const updateMutation = useUpdateTransaction();
   const cancelMutation = useCancelTransaction();
+  const createMutation = useCreateTransaction();
   const liffAction = useLiffAction();
 
   const handleConfirm = (id: string) => {
     if (isLineUser) {
-      const tx = allTransactions.find(t => t.id === id);
       liffAction.mutate(
         { action: 'confirm', transactionId: id },
         {
@@ -152,20 +156,49 @@ const Index = () => {
     });
   };
 
-  const isMutating = isLineUser ? liffAction.isPending : false;
+  const handleCreate = (payload: Record<string, unknown>) => {
+    if (isLineUser) {
+      liffAction.mutate(
+        { action: 'create', updates: payload },
+        {
+          onSuccess: () => {
+            toast.success('เพิ่มรายจ่ายสำเร็จ');
+            setCreateOpen(false);
+          },
+          onError: () => toast.error('เกิดข้อผิดพลาด'),
+        }
+      );
+      return;
+    }
+    createMutation.mutate(payload, {
+      onSuccess: () => {
+        toast.success('เพิ่มรายจ่ายสำเร็จ');
+        setCreateOpen(false);
+        queryClient.invalidateQueries({ queryKey: ['my-transactions'] });
+      },
+      onError: () => toast.error('เกิดข้อผิดพลาด'),
+    });
+  };
 
+  const isMutating = isLineUser ? liffAction.isPending : false;
   const isAdmin = role === 'admin';
 
   return (
     <AppLayout>
       <div className="space-y-6">
-        <div>
-          <h1 className="text-2xl font-bold">
-            {isAdmin ? 'Dashboard' : `สวัสดี, ${lineIdentity?.displayName || 'คุณ'}`}
-          </h1>
-          <p className="text-muted-foreground text-sm">
-            {isAdmin ? 'ภาพรวมรายจ่ายทั้งหมด (Admin)' : 'ภาพรวมรายจ่ายส่วนตัว'}
-          </p>
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-bold">
+              {isAdmin ? 'Dashboard' : `สวัสดี, ${lineIdentity?.displayName || 'คุณ'}`}
+            </h1>
+            <p className="text-muted-foreground text-sm">
+              {isAdmin ? 'ภาพรวมรายจ่ายทั้งหมด (Admin)' : 'ภาพรวมรายจ่ายส่วนตัว'}
+            </p>
+          </div>
+          <Button onClick={() => setCreateOpen(true)} size="sm" className="gap-1.5">
+            <Plus className="h-4 w-4" />
+            เพิ่มรายจ่าย
+          </Button>
         </div>
 
         <OverviewCards {...stats} />
@@ -210,6 +243,15 @@ const Index = () => {
           )}
         </div>
       </div>
+
+      {/* Create transaction dialog */}
+      <TransactionEditDialog
+        mode="create"
+        open={createOpen}
+        onOpenChange={setCreateOpen}
+        onSave={handleCreate}
+        saving={isLineUser ? liffAction.isPending : createMutation.isPending}
+      />
     </AppLayout>
   );
 };
