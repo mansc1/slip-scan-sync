@@ -36,6 +36,7 @@ export const DEMO_TRANSACTIONS: Transaction[] = [
     notes: null,
     source: 'line',
     created_at: '2026-02-23T12:18:00Z',
+    payment_method: 'other',
     updated_at: '2026-02-23T12:20:00Z',
   },
   {
@@ -73,6 +74,7 @@ export const DEMO_TRANSACTIONS: Transaction[] = [
     notes: null,
     source: 'line',
     created_at: '2026-02-24T05:35:00Z',
+    payment_method: 'other',
     updated_at: '2026-02-24T05:36:00Z',
   },
   {
@@ -110,6 +112,7 @@ export const DEMO_TRANSACTIONS: Transaction[] = [
     notes: null,
     source: 'manual',
     created_at: '2026-03-25T01:45:00Z',
+    payment_method: 'other',
     updated_at: '2026-03-25T01:45:00Z',
   },
   {
@@ -147,6 +150,7 @@ export const DEMO_TRANSACTIONS: Transaction[] = [
     notes: 'ค่าไฟเดือน ก.พ.',
     source: 'line',
     created_at: '2026-03-26T07:22:00Z',
+    payment_method: 'other',
     updated_at: '2026-03-26T07:23:00Z',
   },
   {
@@ -184,6 +188,7 @@ export const DEMO_TRANSACTIONS: Transaction[] = [
     notes: null,
     source: 'line',
     created_at: '2026-03-27T11:10:00Z',
+    payment_method: 'other',
     updated_at: '2026-03-27T11:11:00Z',
   },
   {
@@ -221,6 +226,7 @@ export const DEMO_TRANSACTIONS: Transaction[] = [
     notes: 'ภาพเบลอ อ่านไม่ออก',
     source: 'line',
     created_at: '2026-03-27T02:00:00Z',
+    payment_method: 'other',
     updated_at: '2026-03-27T02:01:00Z',
   },
 ];

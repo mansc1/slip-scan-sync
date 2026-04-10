@@ -131,6 +131,7 @@ export type Database = {
           notes: string | null
           parsed_result: Json | null
           payer_name: string | null
+          payment_method: string | null
           payment_status: Database["public"]["Enums"]["payment_status"] | null
           raw_ocr_text: string | null
           raw_provider_response: Json | null
@@ -174,6 +175,7 @@ export type Database = {
           notes?: string | null
           parsed_result?: Json | null
           payer_name?: string | null
+          payment_method?: string | null
           payment_status?: Database["public"]["Enums"]["payment_status"] | null
           raw_ocr_text?: string | null
           raw_provider_response?: Json | null
@@ -217,6 +219,7 @@ export type Database = {
           notes?: string | null
           parsed_result?: Json | null
           payer_name?: string | null
+          payment_method?: string | null
           payment_status?: Database["public"]["Enums"]["payment_status"] | null
           raw_ocr_text?: string | null
           raw_provider_response?: Json | null

@@ -76,6 +76,29 @@ export function useUpdateTransaction() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['transactions'] });
       qc.invalidateQueries({ queryKey: ['transaction'] });
+      qc.invalidateQueries({ queryKey: ['my-transactions'] });
+    },
+  });
+}
+
+/** Insert a new manual transaction (admin/authenticated user) */
+export function useCreateTransaction() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (payload: Record<string, unknown>) => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) throw new Error('Not authenticated');
+      const { data, error } = await supabase
+        .from('transactions')
+        .insert({ ...payload, user_id: session.user.id } as any)
+        .select()
+        .single();
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['transactions'] });
+      qc.invalidateQueries({ queryKey: ['my-transactions'] });
     },
   });
 }

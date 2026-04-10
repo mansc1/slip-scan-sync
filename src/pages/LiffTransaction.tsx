@@ -8,9 +8,9 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
-import { EXPENSE_CATEGORIES, type ExpenseCategory, type TransactionType } from '@/types';
+import { EXPENSE_CATEGORIES, type ExpenseCategory, type TransactionType, type PaymentMethod } from '@/types';
 import { CancelTransactionDialog } from '@/components/transactions/CancelTransactionDialog';
-import { type TransactionEditValues, getDefaultEditValues, buildUpdatePayload } from '@/components/transactions/transactionFields';
+import { type TransactionEditValues, getDefaultEditValues, buildUpdatePayload, PAYMENT_METHODS } from '@/components/transactions/transactionFields';
 import { Check, X, Pencil, Loader2, AlertTriangle, ShieldX, CheckCircle2, Ban } from 'lucide-react';
 
 const TRANSACTION_TYPES: { value: TransactionType; label: string }[] = [
@@ -38,7 +38,7 @@ export default function LiffTransaction() {
   // Edit form state — uses shared schema
   const [editValues, setEditValues] = useState<TransactionEditValues>({
     amount: '', date_display: '', time_display: '', merchant_name: '',
-    category_final: 'other', transaction_type: 'other', notes: '',
+    category_final: 'other', transaction_type: 'other', payment_method: 'other', notes: '',
   });
 
   useEffect(() => {
@@ -285,6 +285,17 @@ export default function LiffTransaction() {
                 <Label className="text-xs">เวลา</Label>
                 <Input value={editValues.time_display} onChange={e => setEditValues(v => ({ ...v, time_display: e.target.value }))} />
               </div>
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs">วิธีชำระ</Label>
+              <Select value={editValues.payment_method} onValueChange={val => setEditValues(v => ({ ...v, payment_method: val as PaymentMethod }))}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {PAYMENT_METHODS.map(p => (
+                    <SelectItem key={p.value} value={p.value}>{p.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
             <div className="space-y-1.5">
               <Label className="text-xs">บันทึก</Label>
