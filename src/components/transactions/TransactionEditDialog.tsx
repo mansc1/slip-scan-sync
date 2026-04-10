@@ -1,0 +1,103 @@
+import { useForm } from 'react-hook-form';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { EXPENSE_CATEGORIES, type Transaction, type ExpenseCategory, type TransactionType } from '@/types';
+import { Save, Loader2 } from 'lucide-react';
+import { type TransactionEditValues, getDefaultEditValues, buildUpdatePayload } from './transactionFields';
+
+const TRANSACTION_TYPES: { value: TransactionType; label: string }[] = [
+  { value: 'transfer', label: 'โอนเงิน' },
+  { value: 'bill_payment', label: 'ชำระบิล' },
+  { value: 'merchant_payment', label: 'จ่ายร้านค้า' },
+  { value: 'qr_payment', label: 'QR Payment' },
+  { value: 'other', label: 'อื่นๆ' },
+];
+
+interface TransactionEditDialogProps {
+  transaction: Transaction;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onSave: (updates: Record<string, unknown>) => void;
+  saving?: boolean;
+}
+
+export function TransactionEditDialog({ transaction, open, onOpenChange, onSave, saving }: TransactionEditDialogProps) {
+  const { register, handleSubmit, setValue, watch, reset } = useForm<TransactionEditValues>({
+    defaultValues: getDefaultEditValues(transaction),
+  });
+
+  const selectedCategory = watch('category_final');
+  const selectedType = watch('transaction_type');
+
+  const onSubmit = (data: TransactionEditValues) => {
+    onSave(buildUpdatePayload(data));
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={(v) => { if (!v) reset(); onOpenChange(v); }}>
+      <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>แก้ไขรายการ</DialogTitle>
+          <DialogDescription>แก้ไขข้อมูลธุรกรรม</DialogDescription>
+        </DialogHeader>
+        <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="space-y-2">
+              <Label>จำนวนเงิน</Label>
+              <Input type="number" step="0.01" {...register('amount')} />
+            </div>
+            <div className="space-y-2">
+              <Label>หมวดหมู่</Label>
+              <Select value={selectedCategory} onValueChange={(v) => setValue('category_final', v as ExpenseCategory)}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {EXPENSE_CATEGORIES.map(c => (
+                    <SelectItem key={c.value} value={c.value}>{c.labelTh}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>วันที่</Label>
+              <Input {...register('date_display')} />
+            </div>
+            <div className="space-y-2">
+              <Label>เวลา</Label>
+              <Input {...register('time_display')} />
+            </div>
+            <div className="space-y-2 sm:col-span-2">
+              <Label>ประเภท</Label>
+              <Select value={selectedType} onValueChange={(v) => setValue('transaction_type', v as TransactionType)}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {TRANSACTION_TYPES.map(t => (
+                    <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2 sm:col-span-2">
+              <Label>ร้านค้า / ผู้รับ</Label>
+              <Input {...register('merchant_name')} />
+            </div>
+            <div className="space-y-2 sm:col-span-2">
+              <Label>บันทึก</Label>
+              <Textarea {...register('notes')} rows={2} />
+            </div>
+          </div>
+          <div className="flex justify-end gap-2 pt-2">
+            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>ยกเลิก</Button>
+            <Button type="submit" disabled={saving}>
+              {saving ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Save className="h-4 w-4 mr-1" />}
+              บันทึก
+            </Button>
+          </div>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
