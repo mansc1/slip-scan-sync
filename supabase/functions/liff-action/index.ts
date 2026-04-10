@@ -33,7 +33,7 @@ serve(async (req) => {
       });
     }
 
-    if (!["confirm", "ignore", "update"].includes(action)) {
+    if (!["confirm", "ignore", "update", "cancel"].includes(action)) {
       return new Response(JSON.stringify({ error: "Invalid action" }), {
         status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
@@ -72,10 +72,10 @@ serve(async (req) => {
       });
     }
 
-    // Check if already finalized
-    if (tx.status === "confirmed" || tx.status === "ignored") {
+    // Block actions on cancelled transactions
+    if (tx.status === "cancelled") {
       return new Response(JSON.stringify({ 
-        error: tx.status === "confirmed" ? "รายการนี้ยืนยันแล้ว" : "รายการนี้ถูกข้ามแล้ว",
+        error: "รายการนี้ถูกยกเลิกแล้ว",
         already_finalized: true,
         status: tx.status,
       }), {
@@ -94,14 +94,22 @@ serve(async (req) => {
       };
     } else if (action === "ignore") {
       updatePayload = { status: "ignored" };
+    } else if (action === "cancel") {
+      updatePayload = { status: "cancelled" };
     } else if (action === "update") {
-      // Whitelist allowed update fields
-      const allowed = ["amount", "merchant_name", "category_final", "date_display", "time_display", "notes"];
-      updatePayload = { status: "confirmed", sheets_sync_status: "pending", drive_sync_status: "pending" };
+      // Whitelist allowed update fields — preserve current status
+      const allowed = ["amount", "merchant_name", "category_final", "date_display", "time_display", "notes", "transaction_type"];
+      updatePayload = {};
       if (updates && typeof updates === "object") {
         for (const key of allowed) {
           if (key in updates) updatePayload[key] = updates[key];
         }
+      }
+      // If still pending, confirm on save; otherwise keep current status
+      if (tx.status === "pending_confirmation") {
+        updatePayload.status = "confirmed";
+        updatePayload.sheets_sync_status = "pending";
+        updatePayload.drive_sync_status = "pending";
       }
     }
 
@@ -119,8 +127,8 @@ serve(async (req) => {
       });
     }
 
-    // Trigger syncs for confirm/update (fire and forget)
-    if (action === "confirm" || action === "update") {
+    // Trigger syncs only for confirm or update-on-pending (fire and forget)
+    if (action === "confirm" || (action === "update" && tx.status === "pending_confirmation")) {
       const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
       const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
