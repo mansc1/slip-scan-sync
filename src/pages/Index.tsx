@@ -192,8 +192,8 @@ const Index = () => {
               onConfirm={handleConfirm}
               onEdit={handleEdit}
               onCancel={handleCancel}
-              editSaving={updateMutation.isPending}
-              cancelSaving={cancelMutation.isPending}
+              editSaving={isLineUser ? liffAction.isPending : updateMutation.isPending}
+              cancelSaving={isLineUser ? liffAction.isPending : cancelMutation.isPending}
               hideSystemColumns={!isAdmin}
             />
           </div>
