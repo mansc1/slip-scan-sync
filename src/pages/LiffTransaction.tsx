@@ -38,7 +38,7 @@ export default function LiffTransaction() {
   // Edit form state — uses shared schema
   const [editValues, setEditValues] = useState<TransactionEditValues>({
     amount: '', date_display: '', time_display: '', merchant_name: '',
-    category_final: 'other', transaction_type: 'other', notes: '',
+    category_final: 'other', transaction_type: 'other', payment_method: 'other', notes: '',
   });
 
   useEffect(() => {

@@ -27,14 +27,21 @@ serve(async (req) => {
   try {
     const { action, transactionId, idToken, updates } = await req.json();
 
-    if (!action || !transactionId || !idToken) {
-      return new Response(JSON.stringify({ error: "Missing action, transactionId, or idToken" }), {
+    if (!action || !idToken) {
+      return new Response(JSON.stringify({ error: "Missing action or idToken" }), {
         status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
-    if (!["confirm", "ignore", "update", "cancel"].includes(action)) {
+    if (!["confirm", "ignore", "update", "cancel", "create"].includes(action)) {
       return new Response(JSON.stringify({ error: "Invalid action" }), {
+        status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // transactionId is required for all actions except create
+    if (action !== "create" && !transactionId) {
+      return new Response(JSON.stringify({ error: "Missing transactionId" }), {
         status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
@@ -52,6 +59,39 @@ serve(async (req) => {
       Deno.env.get("SUPABASE_URL")!,
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
     );
+
+    // ---- CREATE: insert a new manual transaction ----
+    if (action === "create") {
+      const allowed = ["amount", "merchant_name", "category_final", "category_guess", "date_display", "time_display", "notes", "transaction_type", "payment_method", "currency", "source", "status"];
+      const insertPayload: Record<string, any> = { line_user_id: verifiedUserId };
+      if (updates && typeof updates === "object") {
+        for (const key of allowed) {
+          if (key in updates) insertPayload[key] = updates[key];
+        }
+      }
+      // Enforce manual_entry source and confirmed status for MVP
+      insertPayload.source = "manual_entry";
+      insertPayload.status = insertPayload.status || "confirmed";
+
+      const { data: created, error: createErr } = await supabase
+        .from("transactions")
+        .insert(insertPayload)
+        .select()
+        .single();
+
+      if (createErr) {
+        console.error("liff-action create error:", createErr);
+        return new Response(JSON.stringify({ error: "Create failed" }), {
+          status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      return new Response(JSON.stringify({ success: true, transaction: created }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // ---- Existing actions: confirm, ignore, update, cancel ----
 
     // Fetch and validate ownership
     const { data: tx, error: txErr } = await supabase
@@ -98,10 +138,10 @@ serve(async (req) => {
       updatePayload = { status: "cancelled" };
     } else if (action === "update") {
       // Whitelist allowed update fields — preserve current status
-      const allowed = ["amount", "merchant_name", "category_final", "date_display", "time_display", "notes", "transaction_type"];
+      const allowedUpdate = ["amount", "merchant_name", "category_final", "date_display", "time_display", "notes", "transaction_type", "payment_method"];
       updatePayload = {};
       if (updates && typeof updates === "object") {
-        for (const key of allowed) {
+        for (const key of allowedUpdate) {
           if (key in updates) updatePayload[key] = updates[key];
         }
       }
