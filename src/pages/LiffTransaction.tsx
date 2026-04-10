@@ -287,6 +287,17 @@ export default function LiffTransaction() {
               </div>
             </div>
             <div className="space-y-1.5">
+              <Label className="text-xs">วิธีชำระ</Label>
+              <Select value={editValues.payment_method} onValueChange={val => setEditValues(v => ({ ...v, payment_method: val as PaymentMethod }))}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {PAYMENT_METHODS.map(p => (
+                    <SelectItem key={p.value} value={p.value}>{p.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
               <Label className="text-xs">บันทึก</Label>
               <Textarea value={editValues.notes} onChange={e => setEditValues(v => ({ ...v, notes: e.target.value }))} rows={2} />
             </div>
