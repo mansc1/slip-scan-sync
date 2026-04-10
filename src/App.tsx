@@ -8,7 +8,6 @@ import { useLineAuth, LineAuthProvider } from "@/contexts/LineAuthContext";
 import LiffCallbackHandler from "@/components/LiffCallbackHandler";
 import Index from "./pages/Index";
 import TransactionDetail from "./pages/TransactionDetail";
-import TransactionEdit from "./pages/TransactionEdit";
 import Upload from "./pages/Upload";
 import Export from "./pages/Export";
 import SettingsPage from "./pages/SettingsPage";
@@ -24,18 +23,12 @@ function ProtectedRoute({ children, adminOnly = false }: { children: React.React
   const { isAuthenticated, loading } = useAuth();
   const { isLineUser } = useLineAuth();
 
-  // LIFF OAuth callback: let LIFF SDK process liff.state before auth check
   const hasLiffState = new URLSearchParams(window.location.search).has('liff.state');
-  if (hasLiffState) {
-    return <LiffCallbackHandler />;
-  }
+  if (hasLiffState) return <LiffCallbackHandler />;
 
   if (loading) return <div className="flex min-h-screen items-center justify-center text-muted-foreground">กำลังโหลด...</div>;
 
-  // LINE users can access dashboard but not admin-only routes
   if (isLineUser && !adminOnly) return <>{children}</>;
-
-  // Admin access via Supabase auth
   if (isAuthenticated) return <>{children}</>;
 
   return <Navigate to={adminOnly ? "/admin/login" : "/auth"} replace />;
@@ -54,7 +47,6 @@ const AppRoutes = () => (
     <Route path="/admin/login" element={<AuthRoute><AdminLogin /></AuthRoute>} />
     <Route path="/" element={<ProtectedRoute><Index /></ProtectedRoute>} />
     <Route path="/transactions/:id" element={<ProtectedRoute><TransactionDetail /></ProtectedRoute>} />
-    <Route path="/transactions/:id/edit" element={<ProtectedRoute adminOnly><TransactionEdit /></ProtectedRoute>} />
     <Route path="/upload" element={<ProtectedRoute adminOnly><Upload /></ProtectedRoute>} />
     <Route path="/export" element={<ProtectedRoute adminOnly><Export /></ProtectedRoute>} />
     <Route path="/settings" element={<ProtectedRoute adminOnly><SettingsPage /></ProtectedRoute>} />
