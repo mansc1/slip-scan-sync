@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useQueryClient } from '@tanstack/react-query';
+import { useQueryClient, useMutation } from '@tanstack/react-query';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { OverviewCards } from '@/components/dashboard/OverviewCards';
 import { TransactionTable } from '@/components/dashboard/TransactionTable';
@@ -10,8 +10,31 @@ import { CategoryBreakdown } from '@/components/dashboard/CategoryBreakdown';
 import { useMyTransactions } from '@/hooks/useMyTransactions';
 import { useConfirmTransaction, useUpdateTransaction, useCancelTransaction } from '@/hooks/useTransactions';
 import { useLineAuth } from '@/contexts/LineAuthContext';
+import { supabase } from '@/integrations/supabase/client';
+import { getFreshLineIdToken } from '@/lib/line-token';
 import { toast } from 'sonner';
 import type { ExpenseCategory, TransactionStatus } from '@/types';
+
+/** Calls liff-action edge function for LINE user mutations */
+function useLiffAction() {
+  const { lineIdentity } = useLineAuth();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ action, transactionId, updates }: { action: string; transactionId: string; updates?: Record<string, unknown> }) => {
+      const idToken = getFreshLineIdToken(lineIdentity?.idToken);
+      if (!idToken) throw new Error('No LINE token');
+      const { data, error } = await supabase.functions.invoke('liff-action', {
+        body: { action, transactionId, idToken, updates },
+      });
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error);
+      return data;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['my-transactions'] });
+    },
+  });
+}
 
 const Index = () => {
   const queryClient = useQueryClient();
@@ -59,8 +82,20 @@ const Index = () => {
   const confirmMutation = useConfirmTransaction();
   const updateMutation = useUpdateTransaction();
   const cancelMutation = useCancelTransaction();
+  const liffAction = useLiffAction();
 
   const handleConfirm = (id: string) => {
+    if (isLineUser) {
+      const tx = allTransactions.find(t => t.id === id);
+      liffAction.mutate(
+        { action: 'confirm', transactionId: id },
+        {
+          onSuccess: () => toast.success('ยืนยันรายการแล้ว'),
+          onError: () => toast.error('เกิดข้อผิดพลาด'),
+        }
+      );
+      return;
+    }
     const tx = allTransactions.find(t => t.id === id);
     confirmMutation.mutate(
       { id, categoryFinal: tx?.category_guess || undefined },
@@ -75,6 +110,16 @@ const Index = () => {
   };
 
   const handleEdit = (id: string, updates: Record<string, unknown>) => {
+    if (isLineUser) {
+      liffAction.mutate(
+        { action: 'update', transactionId: id, updates },
+        {
+          onSuccess: () => toast.success('บันทึกแล้ว'),
+          onError: () => toast.error('เกิดข้อผิดพลาด'),
+        }
+      );
+      return;
+    }
     updateMutation.mutate(
       { id, updates: updates as any },
       {
@@ -88,6 +133,16 @@ const Index = () => {
   };
 
   const handleCancel = (id: string) => {
+    if (isLineUser) {
+      liffAction.mutate(
+        { action: 'cancel', transactionId: id },
+        {
+          onSuccess: () => toast.success('ยกเลิกรายการแล้ว'),
+          onError: () => toast.error('เกิดข้อผิดพลาด'),
+        }
+      );
+      return;
+    }
     cancelMutation.mutate(id, {
       onSuccess: () => {
         toast.success('ยกเลิกรายการแล้ว');
@@ -96,6 +151,8 @@ const Index = () => {
       onError: () => toast.error('เกิดข้อผิดพลาด'),
     });
   };
+
+  const isMutating = isLineUser ? liffAction.isPending : false;
 
   const isAdmin = role === 'admin';
 
@@ -135,8 +192,8 @@ const Index = () => {
               onConfirm={handleConfirm}
               onEdit={handleEdit}
               onCancel={handleCancel}
-              editSaving={updateMutation.isPending}
-              cancelSaving={cancelMutation.isPending}
+              editSaving={isLineUser ? liffAction.isPending : updateMutation.isPending}
+              cancelSaving={isLineUser ? liffAction.isPending : cancelMutation.isPending}
               hideSystemColumns={!isAdmin}
             />
           </div>
