@@ -1,4 +1,4 @@
-export type TransactionStatus = 'pending_confirmation' | 'confirmed' | 'ignored' | 'editing' | 'extraction_failed';
+export type TransactionStatus = 'pending_confirmation' | 'confirmed' | 'ignored' | 'editing' | 'extraction_failed' | 'cancelled';
 export type TransactionType = 'transfer' | 'bill_payment' | 'merchant_payment' | 'qr_payment' | 'other';
 export type PaymentStatus = 'success' | 'failed' | 'pending' | 'unknown';
 export type ExpenseCategory = 'food' | 'transport' | 'shopping' | 'bills' | 'health' | 'entertainment' | 'education' | 'travel' | 'home' | 'family' | 'transfer' | 'other';
@@ -117,4 +117,5 @@ export const STATUS_COLORS: Record<TransactionStatus, string> = {
   ignored: 'muted',
   editing: 'accent',
   extraction_failed: 'destructive',
+  cancelled: 'destructive',
 };

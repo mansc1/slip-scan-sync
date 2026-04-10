@@ -49,6 +49,7 @@ export function TransactionFilters({
           <SelectItem value="confirmed">ยืนยันแล้ว</SelectItem>
           <SelectItem value="ignored">ข้าม</SelectItem>
           <SelectItem value="extraction_failed">อ่านไม่ได้</SelectItem>
+          <SelectItem value="cancelled">ยกเลิก</SelectItem>
         </SelectContent>
       </Select>
     </div>
