@@ -160,28 +160,58 @@ const Index = () => {
     });
   };
 
-  const handleCreate = (payload: Record<string, unknown>) => {
+  const handleCreate = (payload: Record<string, unknown>, acknowledgeDuplicates = false) => {
     if (isLineUser) {
       liffAction.mutate(
-        { action: 'create', updates: payload },
+        { action: 'create', updates: payload, acknowledgeDuplicates },
         {
           onSuccess: () => {
             toast.success('เพิ่มรายจ่ายสำเร็จ');
             setCreateOpen(false);
+            setPendingCreatePayload(null);
           },
-          onError: () => toast.error('เกิดข้อผิดพลาด'),
+          onError: (err: any) => {
+            const msg = err?.message || '';
+            // liff edge function returns 409 with duplicate payload — surfaced via err.context
+            const ctx = err?.context;
+            if (ctx?.duplicate || msg.includes('Duplicate')) {
+              setPendingCreatePayload(payload);
+              setDupDialog({
+                type: ctx?.duplicate === 'hard' ? 'hard' : 'probable',
+                candidates: ctx?.hardMatch ? [ctx.hardMatch] : (ctx?.probableMatches || []),
+              });
+              return;
+            }
+            toast.error('เกิดข้อผิดพลาด');
+          },
         }
       );
       return;
     }
-    createMutation.mutate(payload, {
-      onSuccess: () => {
-        toast.success('เพิ่มรายจ่ายสำเร็จ');
-        setCreateOpen(false);
-        queryClient.invalidateQueries({ queryKey: ['my-transactions'] });
-      },
-      onError: () => toast.error('เกิดข้อผิดพลาด'),
-    });
+    createMutation.mutate(
+      { ...payload, acknowledgeDuplicates },
+      {
+        onSuccess: () => {
+          toast.success('เพิ่มรายจ่ายสำเร็จ');
+          setCreateOpen(false);
+          setPendingCreatePayload(null);
+          queryClient.invalidateQueries({ queryKey: ['my-transactions'] });
+        },
+        onError: (err: any) => {
+          if (err?.code === 'DUPLICATE') {
+            setPendingCreatePayload(payload);
+            setDupDialog({
+              type: err.details.type,
+              candidates: err.details.hardMatch
+                ? [err.details.hardMatch]
+                : err.details.probableMatches,
+            });
+            return;
+          }
+          toast.error('เกิดข้อผิดพลาด');
+        },
+      }
+    );
   };
 
   const isMutating = isLineUser ? liffAction.isPending : false;
