@@ -36,6 +36,7 @@ export default function LiffTransaction() {
   const [saving, setSaving] = useState(false);
   const [cancelOpen, setCancelOpen] = useState(false);
   const [cancelling, setCancelling] = useState(false);
+  const [dupDialog, setDupDialog] = useState<{ type: 'hard' | 'probable'; candidates: DuplicateCandidate[] } | null>(null);
 
   // Edit form state — uses shared schema
   const [editValues, setEditValues] = useState<TransactionEditValues>({
