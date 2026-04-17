@@ -172,13 +172,46 @@ serve(async (req) => {
       updatePayload = { status: "cancelled" };
     } else if (action === "update") {
       // Whitelist allowed update fields — preserve current status
-      const allowedUpdate = ["amount", "merchant_name", "category_final", "date_display", "time_display", "notes", "transaction_type", "payment_method"];
+      const allowedUpdate = ["amount", "merchant_name", "category_final", "date_display", "time_display", "notes", "transaction_type", "payment_method", "transaction_datetime_iso"];
       updatePayload = {};
       if (updates && typeof updates === "object") {
         for (const key of allowedUpdate) {
           if (key in updates) updatePayload[key] = updates[key];
         }
       }
+
+      // Server-side duplicate guard for update — only when amount or datetime actually change
+      if (!acknowledgeDuplicates && (updatePayload.amount !== undefined || updatePayload.transaction_datetime_iso !== undefined)) {
+        const dupCheck = await runDuplicateCheck(supabase, {
+          ownerLineUserId: verifiedUserId,
+          amount: updatePayload.amount ?? null,
+          datetime: updatePayload.transaction_datetime_iso ?? null,
+          merchant: updatePayload.merchant_name ?? null,
+          reference_no: null,
+          image_hash: null,
+          exclude_id: transactionId,
+        });
+        if (dupCheck.hardMatch) {
+          return new Response(JSON.stringify({
+            error: "Duplicate transaction detected",
+            duplicate: "hard",
+            hardMatch: dupCheck.hardMatch,
+            probableMatches: [],
+          }), { status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        }
+        if (dupCheck.probableMatches.length > 0) {
+          return new Response(JSON.stringify({
+            error: "Probable duplicate detected",
+            duplicate: "probable",
+            hardMatch: null,
+            probableMatches: dupCheck.probableMatches,
+          }), { status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        }
+      }
+
+      // Always bump updated_at
+      updatePayload.updated_at = new Date().toISOString();
+
       // If still pending, confirm on save; otherwise keep current status
       if (tx.status === "pending_confirmation") {
         updatePayload.status = "confirmed";
