@@ -1,170 +1,110 @@
-# Plan: Duplicate Expense Protection (Slip + Manual)
+## Goal
 
-## Overview
+Add a month filter scoped **only** to the transaction list section. Summary cards and charts remain global/unchanged.
 
-Add a two-tier duplicate detection layer that runs before any new transaction is persisted, covering slip uploads, manual entries, and cross-overlaps between them. Hard duplicates are blocked (with explicit override available); probable duplicates surface a warning dialog with the existing transaction.
+## Approach
 
-## Detection Tiers
+### 1. Add month selector state in `Index.tsx`
 
-**Hard duplicates** (block by default):
+- New state: `selectedMonth: string` in `YYYY-MM` format
+- Default: latest month that has at least one non-cancelled transaction (computed from `allTransactions`)
+- If no data, fall back to current month
 
-- Same `image_hash` (already enforced for slips via `extract-slip` 409 path — extend to be consistent everywhere)
-- Same `reference_no` for the same owner (when reference_no is non-empty)
-- Same `line_message_id` (already deduped via `processed_messages`)
+### 2. Compute available months
 
-**Probable duplicates** (warn, allow continue):
+Derive from `allTransactions` (all loaded data, excluding cancelled):
 
-- Same owner (`user_id` OR `line_user_id`)
-- Same `amount` (exact match within currency)
-- Date/time within ±10 minutes of `transaction_datetime_iso`
-- Similar merchant/payee (case-insensitive substring match on `merchant_name` / `receiver_name` / `payer_name`)
-- Same `transaction_type` (when known)
-- Excludes `cancelled` status from comparison
+- Group by `YYYY-MM` of `transaction_datetime_iso` (fallback to `created_at`)
+- Sort descending (latest first)
+- Use this list to populate the selector dropdown
 
-## Backend
+### 3. Filter list only
 
-### 1. New RPC: `find_duplicate_candidates`
+Add a new derived array `monthFilteredTransactions`:
 
-Postgres function (SECURITY DEFINER, search_path=public) that takes:
+- Start from existing `transactions` (already respects search/category/status filters and cancelled-exclusion logic)
+- Further filter by `selectedMonth` matching the transaction's year-month
+- Pass this to `<TransactionTable />` instead of `transactions`
 
-- `_owner_user_id uuid`, `_owner_line_user_id text`
-- `_amount numeric`, `_datetime timestamptz`
-- `_merchant text`, `_reference_no text`, `_image_hash text`
-- `_exclude_id uuid` (optional, for edits)
+**Untouched:**
 
-Returns:
+- `stats` (passed to `OverviewCards`) — still global
+- `chartTransactions` (passed to `MonthlyExpenseChart` + `CategoryBreakdown`) — still global
 
-- `match_type text` — `'hard_hash' | 'hard_reference' | 'probable'`
-- `transaction_id uuid`, `amount`, `merchant_name`, `transaction_datetime_iso`, `status`, `source`
+### 4. New component: `MonthSelector`
 
-Filters out `cancelled` rows. Owner scoping uses `(user_id = _owner_user_id) OR (line_user_id = _owner_line_user_id)`. Probable matches require amount match + ±10 min window + (merchant similarity OR same datetime).
+Location: `src/components/dashboard/MonthSelector.tsx`
 
-### 2. Edge function: `check-duplicate`
+- Props: `value`, `onChange`, `availableMonths: string[]`
+- Renders a shadcn `Select` with Thai month labels (e.g. "เมษายน 2569" using Buddhist year, matching existing date_display style) plus transaction count per month
+- Place it inside `TransactionFilters` row OR directly above the table — preferred: render it next to the existing `TransactionFilters` so all list-scoped controls sit together
 
-Thin wrapper that:
+### 5. Layout placement in `Index.tsx`
 
-- Verifies LINE ID token (when provided) and resolves `line_user_id`, OR uses authenticated `user_id`
-- Calls the RPC with verified owner identity
-- Returns `{ hardMatch?: {...}, probableMatches: [...] }`
+```text
+[Header + เพิ่มรายจ่าย button]   ← unchanged
+[OverviewCards — global]          ← unchanged
+[Charts — global]                 ← unchanged
+[TransactionFilters + MonthSelector]   ← month selector added here
+[TransactionTable — month-filtered]    ← receives monthFilteredTransactions
+[SlipUploader — admin only]            ← unchanged
+```
 
-### 3. `liff-action` (`create` + `update`) updates
+### 6. Edge cases
 
-- Before insert/update, run the same duplicate check server-side
-- Accept an `acknowledgeDuplicates: true` flag from the client
-- If `hardMatch` and not acknowledged → return `409` with payload `{ duplicate: 'hard', existing }`
-- If `probableMatches` and not acknowledged → return `409` with `{ duplicate: 'probable', candidates }`
-- If acknowledged, proceed as normal
+- Empty `availableMonths` → hide selector, show table's existing empty state
+- User selects a month then changes other filters → keep selected month sticky; if filter combination yields zero rows in that month, table shows its normal empty state (do NOT auto-jump to another month — avoids surprise)
+- New transaction created in a month not currently selected → after invalidation, recompute `availableMonths`; if `selectedMonth` no longer exists in data, reset to latest
 
-### 4. `extract-slip` adjustments
+### 7. Out of scope
 
-- Already returns `existing_transaction_id` on hash collision — formalize the response shape to `{ duplicate: 'hard', match_type: 'hard_hash', existing }` for consistency
-- After OCR, also call the probable-duplicate check using extracted amount/datetime/merchant before creating the row, and surface that to the client
+- LIFF dashboard (`LiffDashboard.tsx`) — only `Index.tsx` per request
+- Summary cards behavior
+- Chart behavior
+- Server-side month filtering (client-side is sufficient given existing query loads user's transactions)
 
-## Frontend
-
-### 5. New shared hook: `useDuplicateCheck`
-
-- Takes a draft payload (amount, datetime, merchant, reference_no, image_hash, ownerContext)
-- Calls `check-duplicate` (or local Supabase query for admin)
-- Returns `{ hardMatch, probableMatches, isChecking }`
-
-### 6. New shared component: `DuplicateWarningDialog`
-
-Reusable for slip + manual flows. Props:
-
-- `open`, `onOpenChange`
-- `match: { type: 'hard' | 'probable', existing: Transaction[] }`
-- `onViewExisting(id)` — navigates to detail
-- `onContinue()` — proceeds with save (for probable; for hard, only shown if explicit override is allowed)
-- `onCancel()` — closes without saving
-
-Layout: shows each candidate's amount, merchant, datetime, source badge (slip/manual), status. Three buttons: **ดูรายการเดิม**, **บันทึกต่อ** (hidden/disabled for hard duplicates without override), **ยกเลิก**.
-
-### 7. Wire into flows
-
-**Manual entry (`Index.tsx` create flow)**:
-
-- On submit, call `useDuplicateCheck` first
-- If `hardMatch` → open dialog without continue option
-- If `probableMatches` → open dialog with all three buttons; "บันทึกต่อ" calls create with `acknowledgeDuplicates: true`
-- If clean → proceed directly
-
-**Slip upload (`SlipUploader.tsx`)**:
-
-- `extract-slip` already handles hard hash collisions; surface the new structured response in a `DuplicateWarningDialog`
-- For probable matches surfaced post-extraction, show the same dialog before final save
-
-**LIFF (`LiffTransaction.tsx` create + edit)**:
-
-- Same pattern — call check before `liff-action` mutation
-- Reuse `DuplicateWarningDialog`
-
-**Edit flows**: skip duplicate check when amount/datetime unchanged; pass `_exclude_id` when checking edits.
-
-### 8. Edge cases
-
-- Demo mode (no auth/no LINE token): skip duplicate check entirely
-- Cancelled transactions never count as duplicates
-- Cross-source overlap works because the check is owner-scoped, not source-scoped
-- Reference number match only triggers when both sides have non-empty reference_no
-
-## File Summary
+## Files
 
 
-| File                                                     | Action                                                 |
-| -------------------------------------------------------- | ------------------------------------------------------ |
-| `supabase/migrations/<new>.sql`                          | Create `find_duplicate_candidates` RPC                 |
-| `supabase/functions/check-duplicate/index.ts`            | New edge function                                      |
-| `supabase/functions/liff-action/index.ts`                | Add duplicate check + `acknowledgeDuplicates` flag     |
-| `supabase/functions/extract-slip/index.ts`               | Standardize duplicate response, add probable check     |
-| `supabase/config.toml`                                   | Register `check-duplicate` if needed                   |
-| `src/hooks/useDuplicateCheck.ts`                         | New shared hook                                        |
-| `src/components/transactions/DuplicateWarningDialog.tsx` | New shared dialog                                      |
-| `src/components/transactions/TransactionEditDialog.tsx`  | Hook in pre-save check for create mode                 |
-| `src/components/dashboard/SlipUploader.tsx`              | Handle structured duplicate responses                  |
-| `src/pages/Index.tsx`                                    | Wire dialog into manual create flow                    |
-| `src/pages/LiffTransaction.tsx`                          | Wire dialog into LIFF create/edit                      |
-| `src/hooks/useTransactions.ts`                           | `useCreateTransaction` accepts `acknowledgeDuplicates` |
+| File                                         | Change                                                                                                                       |
+| -------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| `src/components/dashboard/MonthSelector.tsx` | New — month dropdown with Thai labels                                                                                        |
+| `src/pages/Index.tsx`                        | Add `selectedMonth` state, compute available months + month-filtered list, render selector, pass filtered list to table only |
 
 
-## Out of Scope (for this iteration)
-
-- Fuzzy merchant matching beyond substring (no trigram/Levenshtein yet)
-- User-tunable thresholds (window size, similarity)
-- Bulk duplicate cleanup tooling  
-  
 Additions:
-  1. Keep the owner scope strict and explicit in every duplicate check.
-     Never compare across different users, even if amount/time/merchant are identical.
-  2. Treat duplicate detection as a save-time guard, not a background side effect.
-     The final create/update endpoint must always re-check duplicates server-side, even if the client already checked first.
-  3. For probable duplicates, do not block by default.
-     Show a warning dialog and allow explicit continue with `acknowledgeDuplicates: true`.
-  4. For hard duplicates, define override behavior clearly:
-     - hash duplicate: block by default
-     - reference number duplicate: block by default
-     - only allow override if there is a clear product reason, and log it
-  5. Make the duplicate dialog easy to understand:
-     - show amount
-     - merchant/details
-     - date/time
-     - source
-     - status
-     and clearly explain why it is considered a duplicate.
-  6. Keep cancelled transactions excluded everywhere:
-     - duplicate checks
-     - default dashboard stats
-     - normal summaries
-  7. Add minimal auditability:
-     - if a user saves despite a probable duplicate warning, store that decision or at least log it
-     - if a hard duplicate override is ever allowed, record it explicitly  
-    
-  Also keep the duplicate response contract consistent across all flows:
-  - slip upload
-  - manual create
-  - LIFF create/update
-  So the frontend can always handle:
-  - no duplicate
-  - hard duplicate
-  - probable duplicate
-  with the same dialog and same decision flow.
+
+1. Exclude `cancelled` transactions both from the available-month calculation and from the month-filtered list consistently.
+
+2. Keep the month selector list sorted by latest month first, and show transaction counts per month in the dropdown.
+
+3. Use the same transaction datetime source everywhere for month grouping/filtering:
+
+   - prefer `transaction_datetime_iso`
+
+   - fallback to `created_at`
+
+   so the selector and the list always agree.
+
+4. If a user creates a new manual entry in a different month, recompute available months after refresh and keep the current selected month unless it no longer exists.
+
+5. Make the month selector mobile-friendly and compact, since it belongs to the list/filter area only.  
+  
+Also keep the month selector scoped only to the transaction list UX.
+
+It must not affect:
+
+- overview cards
+
+- global charts
+
+- global stats
+
+Only the table/list section should change by selected month.
+
+&nbsp;
+
+&nbsp;
+
+&nbsp;
+
