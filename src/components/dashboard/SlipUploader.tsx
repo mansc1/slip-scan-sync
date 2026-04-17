@@ -6,6 +6,8 @@ import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import { useAuth } from '@/hooks/useAuth';
 import { useNavigate } from 'react-router-dom';
+import { DuplicateWarningDialog } from '@/components/transactions/DuplicateWarningDialog';
+import type { DuplicateCandidate } from '@/hooks/useDuplicateCheck';
 
 interface SlipUploaderProps {
   onExtracted?: (result: any) => void;
@@ -15,6 +17,7 @@ export function SlipUploader({ onExtracted }: SlipUploaderProps) {
   const [dragging, setDragging] = useState(false);
   const [loading, setLoading] = useState(false);
   const [preview, setPreview] = useState<string | null>(null);
+  const [dupDialog, setDupDialog] = useState<{ type: 'hard' | 'probable'; candidates: DuplicateCandidate[] } | null>(null);
   const { isAuthenticated } = useAuth();
   const navigate = useNavigate();
 
