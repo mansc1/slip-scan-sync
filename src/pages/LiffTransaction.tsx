@@ -10,7 +10,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Textarea } from '@/components/ui/textarea';
 import { EXPENSE_CATEGORIES, type ExpenseCategory, type TransactionType, type PaymentMethod } from '@/types';
 import { CancelTransactionDialog } from '@/components/transactions/CancelTransactionDialog';
+import { DuplicateWarningDialog } from '@/components/transactions/DuplicateWarningDialog';
 import { type TransactionEditValues, getDefaultEditValues, buildUpdatePayload, PAYMENT_METHODS } from '@/components/transactions/transactionFields';
+import type { DuplicateCandidate } from '@/hooks/useDuplicateCheck';
 import { Check, X, Pencil, Loader2, AlertTriangle, ShieldX, CheckCircle2, Ban } from 'lucide-react';
 
 const TRANSACTION_TYPES: { value: TransactionType; label: string }[] = [
