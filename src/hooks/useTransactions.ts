@@ -81,19 +81,62 @@ export function useUpdateTransaction() {
   });
 }
 
-/** Insert a new manual transaction (admin/authenticated user) */
+/** Insert a new manual transaction (admin/authenticated user).
+ *  Performs a server-side duplicate check first; if duplicates are found and not
+ *  acknowledged, throws an error with `code === 'DUPLICATE'` and a `details` payload
+ *  the caller can show in `DuplicateWarningDialog`.
+ */
 export function useCreateTransaction() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (payload: Record<string, unknown>) => {
+    mutationFn: async (
+      payload: Record<string, unknown> & { acknowledgeDuplicates?: boolean }
+    ) => {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) throw new Error('Not authenticated');
+
+      const { acknowledgeDuplicates, ...insertPayload } = payload;
+
+      // Server-side duplicate check (admin uses auth header path)
+      if (!acknowledgeDuplicates) {
+        const { data: dup } = await supabase.functions.invoke('check-duplicate', {
+          body: {
+            amount: insertPayload.amount ?? null,
+            datetime: insertPayload.transaction_datetime_iso ?? null,
+            merchant: insertPayload.merchant_name ?? null,
+            reference_no: insertPayload.reference_no ?? null,
+            image_hash: null,
+          },
+        });
+        if (dup?.hardMatch || (dup?.probableMatches && dup.probableMatches.length > 0)) {
+          const err: any = new Error(dup.hardMatch ? 'Duplicate detected' : 'Probable duplicate');
+          err.code = 'DUPLICATE';
+          err.details = {
+            type: dup.hardMatch ? 'hard' : 'probable',
+            hardMatch: dup.hardMatch || null,
+            probableMatches: dup.probableMatches || [],
+          };
+          throw err;
+        }
+      }
+
       const { data, error } = await supabase
         .from('transactions')
-        .insert({ ...payload, user_id: session.user.id } as any)
+        .insert({ ...insertPayload, user_id: session.user.id } as any)
         .select()
         .single();
       if (error) throw error;
+
+      // Audit override
+      if (acknowledgeDuplicates && data) {
+        await supabase.from('duplicate_overrides' as any).insert({
+          new_transaction_id: data.id,
+          owner_user_id: session.user.id,
+          duplicate_type: 'probable',
+          reason: 'acknowledged_on_create',
+        });
+      }
+
       return data;
     },
     onSuccess: () => {
