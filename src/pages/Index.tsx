@@ -8,6 +8,7 @@ import { SlipUploader } from '@/components/dashboard/SlipUploader';
 import { MonthlyExpenseChart } from '@/components/dashboard/MonthlyExpenseChart';
 import { CategoryBreakdown } from '@/components/dashboard/CategoryBreakdown';
 import { TransactionEditDialog } from '@/components/transactions/TransactionEditDialog';
+import { DuplicateWarningDialog } from '@/components/transactions/DuplicateWarningDialog';
 import { useMyTransactions } from '@/hooks/useMyTransactions';
 import { useConfirmTransaction, useUpdateTransaction, useCancelTransaction, useCreateTransaction } from '@/hooks/useTransactions';
 import { useLineAuth } from '@/contexts/LineAuthContext';
@@ -17,6 +18,7 @@ import { toast } from 'sonner';
 import { Plus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import type { ExpenseCategory, TransactionStatus } from '@/types';
+import type { DuplicateCandidate } from '@/hooks/useDuplicateCheck';
 
 /** Calls liff-action edge function for LINE user mutations */
 function useLiffAction() {
