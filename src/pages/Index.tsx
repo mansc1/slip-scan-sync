@@ -1,9 +1,10 @@
-import { useState } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useQueryClient, useMutation } from '@tanstack/react-query';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { OverviewCards } from '@/components/dashboard/OverviewCards';
 import { TransactionTable } from '@/components/dashboard/TransactionTable';
 import { TransactionFilters } from '@/components/dashboard/TransactionFilters';
+import { MonthSelector } from '@/components/dashboard/MonthSelector';
 import { SlipUploader } from '@/components/dashboard/SlipUploader';
 import { MonthlyExpenseChart } from '@/components/dashboard/MonthlyExpenseChart';
 import { CategoryBreakdown } from '@/components/dashboard/CategoryBreakdown';
