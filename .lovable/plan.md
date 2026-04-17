@@ -1,59 +1,170 @@
-# Fix: Web LIFF Dashboard Shows Zero Data Due to Expired ID Token
+# Plan: Duplicate Expense Protection (Slip + Manual)
 
-## Root Cause
+## Overview
 
-The `LiffDashboard` component captures `liff.getIDToken()` **once** during initialization and stores it in `LineAuthContext`. LINE ID tokens expire in ~10 minutes.
+Add a two-tier duplicate detection layer that runs before any new transaction is persisted, covering slip uploads, manual entries, and cross-overlaps between them. Hard duplicates are blocked (with explicit override available); probable duplicates surface a warning dialog with the existing transaction.
 
-- **Mobile (in-client)**: The LIFF SDK manages token refresh internally. `liff.getIDToken()` returns a valid token on each call.
-- **Web (external browser)**: The cached token in `LineAuthContext` expires. When `useMyTransactions` sends this stale token, the backend returns `"IdToken expired"` → the edge function returns an error → the hook gets zero results or throws.
+## Detection Tiers
 
-Evidence from edge function logs:
+**Hard duplicates** (block by default):
 
-```
-"LINE token verify failed: 400 {"error":"invalid_request","error_description":"IdToken expired."}"
-```
+- Same `image_hash` (already enforced for slips via `extract-slip` 409 path — extend to be consistent everywhere)
+- Same `reference_no` for the same owner (when reference_no is non-empty)
+- Same `line_message_id` (already deduped via `processed_messages`)
 
-This happens repeatedly in the web flow, while the mobile flow shows successful verification with the same `lineUserId`.
+**Probable duplicates** (warn, allow continue):
 
-## Fix (2 files)
+- Same owner (`user_id` OR `line_user_id`)
+- Same `amount` (exact match within currency)
+- Date/time within ±10 minutes of `transaction_datetime_iso`
+- Similar merchant/payee (case-insensitive substring match on `merchant_name` / `receiver_name` / `payer_name`)
+- Same `transaction_type` (when known)
+- Excludes `cancelled` status from comparison
 
-### 1. `useMyTransactions.ts` — Get fresh token before each request
+## Backend
 
-Instead of using the cached `lineIdentity.idToken`, call `liff.getIDToken()` at request time to get the freshest available token. Fall back to the cached token if the SDK call fails.
+### 1. New RPC: `find_duplicate_candidates`
 
-```typescript
-// Before each API call:
-const freshToken = liff.getIDToken() || lineIdentity.idToken;
-```
+Postgres function (SECURITY DEFINER, search_path=public) that takes:
 
-### 2. `LiffDashboard.tsx` — No structural change needed
+- `_owner_user_id uuid`, `_owner_line_user_id text`
+- `_amount numeric`, `_datetime timestamptz`
+- `_merchant text`, `_reference_no text`, `_image_hash text`
+- `_exclude_id uuid` (optional, for edits)
 
-The initial token capture is fine for bootstrapping. The fix is in the data-fetching layer.
+Returns:
 
-## Files
+- `match_type text` — `'hard_hash' | 'hard_reference' | 'probable'`
+- `transaction_id uuid`, `amount`, `merchant_name`, `transaction_datetime_iso`, `status`, `source`
+
+Filters out `cancelled` rows. Owner scoping uses `(user_id = _owner_user_id) OR (line_user_id = _owner_line_user_id)`. Probable matches require amount match + ±10 min window + (merchant similarity OR same datetime).
+
+### 2. Edge function: `check-duplicate`
+
+Thin wrapper that:
+
+- Verifies LINE ID token (when provided) and resolves `line_user_id`, OR uses authenticated `user_id`
+- Calls the RPC with verified owner identity
+- Returns `{ hardMatch?: {...}, probableMatches: [...] }`
+
+### 3. `liff-action` (`create` + `update`) updates
+
+- Before insert/update, run the same duplicate check server-side
+- Accept an `acknowledgeDuplicates: true` flag from the client
+- If `hardMatch` and not acknowledged → return `409` with payload `{ duplicate: 'hard', existing }`
+- If `probableMatches` and not acknowledged → return `409` with `{ duplicate: 'probable', candidates }`
+- If acknowledged, proceed as normal
+
+### 4. `extract-slip` adjustments
+
+- Already returns `existing_transaction_id` on hash collision — formalize the response shape to `{ duplicate: 'hard', match_type: 'hard_hash', existing }` for consistency
+- After OCR, also call the probable-duplicate check using extracted amount/datetime/merchant before creating the row, and surface that to the client
+
+## Frontend
+
+### 5. New shared hook: `useDuplicateCheck`
+
+- Takes a draft payload (amount, datetime, merchant, reference_no, image_hash, ownerContext)
+- Calls `check-duplicate` (or local Supabase query for admin)
+- Returns `{ hardMatch, probableMatches, isChecking }`
+
+### 6. New shared component: `DuplicateWarningDialog`
+
+Reusable for slip + manual flows. Props:
+
+- `open`, `onOpenChange`
+- `match: { type: 'hard' | 'probable', existing: Transaction[] }`
+- `onViewExisting(id)` — navigates to detail
+- `onContinue()` — proceeds with save (for probable; for hard, only shown if explicit override is allowed)
+- `onCancel()` — closes without saving
+
+Layout: shows each candidate's amount, merchant, datetime, source badge (slip/manual), status. Three buttons: **ดูรายการเดิม**, **บันทึกต่อ** (hidden/disabled for hard duplicates without override), **ยกเลิก**.
+
+### 7. Wire into flows
+
+**Manual entry (`Index.tsx` create flow)**:
+
+- On submit, call `useDuplicateCheck` first
+- If `hardMatch` → open dialog without continue option
+- If `probableMatches` → open dialog with all three buttons; "บันทึกต่อ" calls create with `acknowledgeDuplicates: true`
+- If clean → proceed directly
+
+**Slip upload (`SlipUploader.tsx`)**:
+
+- `extract-slip` already handles hard hash collisions; surface the new structured response in a `DuplicateWarningDialog`
+- For probable matches surfaced post-extraction, show the same dialog before final save
+
+**LIFF (`LiffTransaction.tsx` create + edit)**:
+
+- Same pattern — call check before `liff-action` mutation
+- Reuse `DuplicateWarningDialog`
+
+**Edit flows**: skip duplicate check when amount/datetime unchanged; pass `_exclude_id` when checking edits.
+
+### 8. Edge cases
+
+- Demo mode (no auth/no LINE token): skip duplicate check entirely
+- Cancelled transactions never count as duplicates
+- Cross-source overlap works because the check is owner-scoped, not source-scoped
+- Reference number match only triggers when both sides have non-empty reference_no
+
+## File Summary
 
 
-| File                             | Change                                                              |
-| -------------------------------- | ------------------------------------------------------------------- |
-| `src/hooks/useMyTransactions.ts` | Call `liff.getIDToken()` fresh before each edge function invocation |
+| File                                                     | Action                                                 |
+| -------------------------------------------------------- | ------------------------------------------------------ |
+| `supabase/migrations/<new>.sql`                          | Create `find_duplicate_candidates` RPC                 |
+| `supabase/functions/check-duplicate/index.ts`            | New edge function                                      |
+| `supabase/functions/liff-action/index.ts`                | Add duplicate check + `acknowledgeDuplicates` flag     |
+| `supabase/functions/extract-slip/index.ts`               | Standardize duplicate response, add probable check     |
+| `supabase/config.toml`                                   | Register `check-duplicate` if needed                   |
+| `src/hooks/useDuplicateCheck.ts`                         | New shared hook                                        |
+| `src/components/transactions/DuplicateWarningDialog.tsx` | New shared dialog                                      |
+| `src/components/transactions/TransactionEditDialog.tsx`  | Hook in pre-save check for create mode                 |
+| `src/components/dashboard/SlipUploader.tsx`              | Handle structured duplicate responses                  |
+| `src/pages/Index.tsx`                                    | Wire dialog into manual create flow                    |
+| `src/pages/LiffTransaction.tsx`                          | Wire dialog into LIFF create/edit                      |
+| `src/hooks/useTransactions.ts`                           | `useCreateTransaction` accepts `acknowledgeDuplicates` |
 
 
-## Why This Works
+## Out of Scope (for this iteration)
 
-- `liff.getIDToken()` in the web external browser returns the current token from the SDK's internal state. If the SDK has refreshed it (e.g., after re-init), it returns the new one.
-- In-client, the SDK always manages refresh automatically.
-- The cached token in context remains as a fallback and for display name / profile info.
-- No backend changes needed — the same verification logic works with a fresh token.  
-
-
-Approve, with these additions:
-
-1. If `liff.getIDToken()` returns null or an expired/invalid token response still happens, show a clear re-login / retry state instead of silently showing empty data.
-
-2. Do not treat token verification failure as “zero transactions”; distinguish:
-
-   - empty data
-
-   - auth/token error
-
-3. Reuse the same fresh-token logic for all LINE-user edge-function calls, not only `my-transactions`, so dashboard and transaction-detail flows stay consistent.
+- Fuzzy merchant matching beyond substring (no trigram/Levenshtein yet)
+- User-tunable thresholds (window size, similarity)
+- Bulk duplicate cleanup tooling  
+  
+Additions:
+  1. Keep the owner scope strict and explicit in every duplicate check.
+     Never compare across different users, even if amount/time/merchant are identical.
+  2. Treat duplicate detection as a save-time guard, not a background side effect.
+     The final create/update endpoint must always re-check duplicates server-side, even if the client already checked first.
+  3. For probable duplicates, do not block by default.
+     Show a warning dialog and allow explicit continue with `acknowledgeDuplicates: true`.
+  4. For hard duplicates, define override behavior clearly:
+     - hash duplicate: block by default
+     - reference number duplicate: block by default
+     - only allow override if there is a clear product reason, and log it
+  5. Make the duplicate dialog easy to understand:
+     - show amount
+     - merchant/details
+     - date/time
+     - source
+     - status
+     and clearly explain why it is considered a duplicate.
+  6. Keep cancelled transactions excluded everywhere:
+     - duplicate checks
+     - default dashboard stats
+     - normal summaries
+  7. Add minimal auditability:
+     - if a user saves despite a probable duplicate warning, store that decision or at least log it
+     - if a hard duplicate override is ever allowed, record it explicitly  
+    
+  Also keep the duplicate response contract consistent across all flows:
+  - slip upload
+  - manual create
+  - LIFF create/update
+  So the frontend can always handle:
+  - no duplicate
+  - hard duplicate
+  - probable duplicate
+  with the same dialog and same decision flow.
