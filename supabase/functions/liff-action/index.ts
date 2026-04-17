@@ -252,6 +252,11 @@ serve(async (req) => {
       }).catch(e => console.error("sync-drive error:", e));
     }
 
+    // Audit override on update if acknowledged
+    if (acknowledgeDuplicates && action === "update") {
+      await logOverride(supabase, transactionId, verifiedUserId, null, "acknowledged_on_update");
+    }
+
     return new Response(JSON.stringify({ success: true, transaction: updated }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
@@ -262,3 +267,55 @@ serve(async (req) => {
     });
   }
 });
+
+// ---------- Helpers ----------
+
+async function runDuplicateCheck(supabase: any, args: {
+  ownerUserId?: string | null;
+  ownerLineUserId?: string | null;
+  amount: number | null;
+  datetime: string | null;
+  merchant: string | null;
+  reference_no: string | null;
+  image_hash: string | null;
+  exclude_id: string | null;
+}): Promise<{ hardMatch: any | null; probableMatches: any[] }> {
+  const { data, error } = await supabase.rpc("find_duplicate_candidates", {
+    _owner_user_id: args.ownerUserId ?? null,
+    _owner_line_user_id: args.ownerLineUserId ?? null,
+    _amount: args.amount,
+    _datetime: args.datetime,
+    _merchant: args.merchant,
+    _reference_no: args.reference_no,
+    _image_hash: args.image_hash,
+    _exclude_id: args.exclude_id,
+  });
+  if (error) {
+    console.error("runDuplicateCheck error:", error);
+    return { hardMatch: null, probableMatches: [] };
+  }
+  const list = data || [];
+  const hardMatch = list.find((c: any) => c.match_type === "hard_hash" || c.match_type === "hard_reference") || null;
+  const probableMatches = list.filter((c: any) => c.match_type === "probable");
+  return { hardMatch, probableMatches };
+}
+
+async function logOverride(
+  supabase: any,
+  newTxId: string | null,
+  ownerLineUserId: string | null,
+  matchedTxId: string | null,
+  reason: string,
+) {
+  try {
+    await supabase.from("duplicate_overrides").insert({
+      new_transaction_id: newTxId,
+      matched_transaction_id: matchedTxId,
+      duplicate_type: "probable",
+      owner_line_user_id: ownerLineUserId,
+      reason,
+    });
+  } catch (e) {
+    console.error("logOverride failed:", e);
+  }
+}
