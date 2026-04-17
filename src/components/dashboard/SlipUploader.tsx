@@ -78,6 +78,7 @@ export function SlipUploader({ onExtracted }: SlipUploaderProps) {
   }, [handleFile]);
 
   return (
+    <>
     <Card>
       <CardHeader>
         <CardTitle className="text-lg flex items-center gap-2">
@@ -139,6 +140,14 @@ export function SlipUploader({ onExtracted }: SlipUploaderProps) {
         </div>
       </CardContent>
     </Card>
+    <DuplicateWarningDialog
+      open={!!dupDialog}
+      onOpenChange={(v) => { if (!v) setDupDialog(null); }}
+      type={dupDialog?.type || null}
+      candidates={dupDialog?.candidates || []}
+      onCancel={() => setDupDialog(null)}
+    />
+    </>
   );
 }
 
