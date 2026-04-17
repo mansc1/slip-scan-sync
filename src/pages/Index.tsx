@@ -295,16 +295,27 @@ const Index = () => {
 
         <div className={isAdmin ? 'grid gap-6 lg:grid-cols-3' : ''}>
           <div className={isAdmin ? 'lg:col-span-2 space-y-4' : 'space-y-4'}>
-            <TransactionFilters
-              search={search}
-              onSearchChange={setSearch}
-              category={category}
-              onCategoryChange={setCategory}
-              status={status}
-              onStatusChange={setStatus}
-            />
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex-1">
+                <TransactionFilters
+                  search={search}
+                  onSearchChange={setSearch}
+                  category={category}
+                  onCategoryChange={setCategory}
+                  status={status}
+                  onStatusChange={setStatus}
+                />
+              </div>
+              {availableMonths.length > 0 && (
+                <MonthSelector
+                  value={selectedMonth}
+                  onChange={setSelectedMonth}
+                  availableMonths={availableMonths}
+                />
+              )}
+            </div>
             <TransactionTable
-              transactions={transactions}
+              transactions={monthFilteredTransactions}
               onConfirm={handleConfirm}
               onEdit={handleEdit}
               onCancel={handleCancel}
