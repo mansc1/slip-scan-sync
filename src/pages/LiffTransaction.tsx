@@ -359,6 +359,19 @@ export default function LiffTransaction() {
           cancelling={cancelling}
         />
       )}
+
+      {/* Duplicate warning dialog */}
+      <DuplicateWarningDialog
+        open={!!dupDialog}
+        onOpenChange={(v) => { if (!v) setDupDialog(null); }}
+        type={dupDialog?.type || null}
+        candidates={dupDialog?.candidates || []}
+        onContinue={() => {
+          setDupDialog(null);
+          handleAction('update', true);
+        }}
+        onCancel={() => setDupDialog(null)}
+      />
     </div>
   );
 }
