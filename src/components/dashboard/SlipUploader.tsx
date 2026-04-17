@@ -39,6 +39,16 @@ export function SlipUploader({ onExtracted }: SlipUploaderProps) {
       });
 
       if (error) {
+        // Try parse 409 duplicate context
+        let dupCtx: any = null;
+        try {
+          dupCtx = await (error as any).context?.json?.();
+        } catch { /* ignore */ }
+
+        if (dupCtx?.duplicate === 'hard' && dupCtx?.hardMatch) {
+          setDupDialog({ type: 'hard', candidates: [dupCtx.hardMatch] });
+          return;
+        }
         if (data?.existing_transaction_id) {
           toast.error('สลิปซ้ำ — รายการนี้มีอยู่แล้ว');
           return;
