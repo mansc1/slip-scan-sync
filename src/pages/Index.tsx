@@ -25,13 +25,22 @@ function useLiffAction() {
   const { lineIdentity } = useLineAuth();
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async ({ action, transactionId, updates }: { action: string; transactionId?: string; updates?: Record<string, unknown> }) => {
+    mutationFn: async ({ action, transactionId, updates, acknowledgeDuplicates }: { action: string; transactionId?: string; updates?: Record<string, unknown>; acknowledgeDuplicates?: boolean }) => {
       const idToken = getFreshLineIdToken(lineIdentity?.idToken);
       if (!idToken) throw new Error('No LINE token');
       const { data, error } = await supabase.functions.invoke('liff-action', {
-        body: { action, transactionId, idToken, updates },
+        body: { action, transactionId, idToken, updates, acknowledgeDuplicates },
       });
-      if (error) throw error;
+      // Surface 409 duplicate payload through error
+      if (error) {
+        const errAny: any = error;
+        // Try parse FunctionsHttpError context
+        try {
+          const ctx = await (error as any).context?.json?.();
+          if (ctx?.duplicate) errAny.context = ctx;
+        } catch { /* ignore */ }
+        throw errAny;
+      }
       if (data?.error) throw new Error(data.error);
       return data;
     },
