@@ -291,9 +291,28 @@ const Index = () => {
       <TransactionEditDialog
         mode="create"
         open={createOpen}
-        onOpenChange={setCreateOpen}
-        onSave={handleCreate}
+        onOpenChange={(v) => {
+          setCreateOpen(v);
+          if (!v) setPendingCreatePayload(null);
+        }}
+        onSave={(payload) => handleCreate(payload)}
         saving={isLineUser ? liffAction.isPending : createMutation.isPending}
+      />
+
+      {/* Duplicate warning dialog (shared) */}
+      <DuplicateWarningDialog
+        open={!!dupDialog}
+        onOpenChange={(v) => { if (!v) setDupDialog(null); }}
+        type={dupDialog?.type || null}
+        candidates={dupDialog?.candidates || []}
+        onContinue={() => {
+          if (pendingCreatePayload) handleCreate(pendingCreatePayload, true);
+          setDupDialog(null);
+        }}
+        onCancel={() => {
+          setDupDialog(null);
+          setPendingCreatePayload(null);
+        }}
       />
     </AppLayout>
   );
