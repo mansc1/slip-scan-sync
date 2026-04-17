@@ -214,7 +214,14 @@ serve(async (req) => {
     if (existing && existing.length > 0) {
       return new Response(JSON.stringify({
         error: "Duplicate slip detected",
+        duplicate: "hard",
+        match_type: "hard_hash",
         existing_transaction_id: existing[0].id,
+        hardMatch: {
+          match_type: "hard_hash",
+          transaction_id: existing[0].id,
+        },
+        probableMatches: [],
       }), {
         status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
