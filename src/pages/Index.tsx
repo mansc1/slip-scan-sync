@@ -60,6 +60,7 @@ const Index = () => {
   const [createOpen, setCreateOpen] = useState(false);
   const [pendingCreatePayload, setPendingCreatePayload] = useState<Record<string, unknown> | null>(null);
   const [dupDialog, setDupDialog] = useState<{ type: 'hard' | 'probable'; candidates: DuplicateCandidate[] } | null>(null);
+  const [selectedMonth, setSelectedMonth] = useState<string>('');
 
   const { data, isLoading } = useMyTransactions({
     search: search || undefined,
