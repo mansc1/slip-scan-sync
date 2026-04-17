@@ -25,7 +25,7 @@ serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   try {
-    const { action, transactionId, idToken, updates } = await req.json();
+    const { action, transactionId, idToken, updates, acknowledgeDuplicates } = await req.json();
 
     if (!action || !idToken) {
       return new Response(JSON.stringify({ error: "Missing action or idToken" }), {
