@@ -62,7 +62,7 @@ serve(async (req) => {
 
     // ---- CREATE: insert a new manual transaction ----
     if (action === "create") {
-      const allowed = ["amount", "merchant_name", "category_final", "category_guess", "date_display", "time_display", "notes", "transaction_type", "payment_method", "currency", "source", "status"];
+      const allowed = ["amount", "merchant_name", "category_final", "category_guess", "date_display", "time_display", "notes", "transaction_type", "payment_method", "currency", "source", "status", "transaction_datetime_iso", "reference_no"];
       const insertPayload: Record<string, any> = { line_user_id: verifiedUserId };
       if (updates && typeof updates === "object") {
         for (const key of allowed) {
@@ -72,6 +72,35 @@ serve(async (req) => {
       // Enforce manual_entry source and confirmed status for MVP
       insertPayload.source = "manual_entry";
       insertPayload.status = insertPayload.status || "confirmed";
+
+      // Server-side duplicate guard
+      if (!acknowledgeDuplicates) {
+        const dupCheck = await runDuplicateCheck(supabase, {
+          ownerLineUserId: verifiedUserId,
+          amount: insertPayload.amount ?? null,
+          datetime: insertPayload.transaction_datetime_iso ?? null,
+          merchant: insertPayload.merchant_name ?? null,
+          reference_no: insertPayload.reference_no ?? null,
+          image_hash: null,
+          exclude_id: null,
+        });
+        if (dupCheck.hardMatch) {
+          return new Response(JSON.stringify({
+            error: "Duplicate transaction detected",
+            duplicate: "hard",
+            hardMatch: dupCheck.hardMatch,
+            probableMatches: [],
+          }), { status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        }
+        if (dupCheck.probableMatches.length > 0) {
+          return new Response(JSON.stringify({
+            error: "Probable duplicate detected",
+            duplicate: "probable",
+            hardMatch: null,
+            probableMatches: dupCheck.probableMatches,
+          }), { status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        }
+      }
 
       const { data: created, error: createErr } = await supabase
         .from("transactions")
@@ -84,6 +113,11 @@ serve(async (req) => {
         return new Response(JSON.stringify({ error: "Create failed" }), {
           status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
+      }
+
+      // Audit override if user acknowledged
+      if (acknowledgeDuplicates && created) {
+        await logOverride(supabase, created.id, verifiedUserId, null, "acknowledged_on_create");
       }
 
       return new Response(JSON.stringify({ success: true, transaction: created }), {
