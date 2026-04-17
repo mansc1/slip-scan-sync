@@ -1,9 +1,10 @@
-import { useState } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useQueryClient, useMutation } from '@tanstack/react-query';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { OverviewCards } from '@/components/dashboard/OverviewCards';
 import { TransactionTable } from '@/components/dashboard/TransactionTable';
 import { TransactionFilters } from '@/components/dashboard/TransactionFilters';
+import { MonthSelector } from '@/components/dashboard/MonthSelector';
 import { SlipUploader } from '@/components/dashboard/SlipUploader';
 import { MonthlyExpenseChart } from '@/components/dashboard/MonthlyExpenseChart';
 import { CategoryBreakdown } from '@/components/dashboard/CategoryBreakdown';
@@ -59,6 +60,7 @@ const Index = () => {
   const [createOpen, setCreateOpen] = useState(false);
   const [pendingCreatePayload, setPendingCreatePayload] = useState<Record<string, unknown> | null>(null);
   const [dupDialog, setDupDialog] = useState<{ type: 'hard' | 'probable'; candidates: DuplicateCandidate[] } | null>(null);
+  const [selectedMonth, setSelectedMonth] = useState<string>('');
 
   const { data, isLoading } = useMyTransactions({
     search: search || undefined,
@@ -78,6 +80,44 @@ const Index = () => {
 
   // Charts should only use non-cancelled confirmed transactions
   const chartTransactions = allTransactions.filter(t => t.status !== 'cancelled');
+
+  // Compute available months from non-cancelled transactions (latest first)
+  const availableMonths = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const t of allTransactions) {
+      if (t.status === 'cancelled') continue;
+      const dt = t.transaction_datetime_iso || t.created_at;
+      if (!dt) continue;
+      const d = new Date(dt);
+      if (isNaN(d.getTime())) continue;
+      const ym = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      counts.set(ym, (counts.get(ym) || 0) + 1);
+    }
+    return Array.from(counts.entries())
+      .map(([value, count]) => ({ value, count }))
+      .sort((a, b) => b.value.localeCompare(a.value));
+  }, [allTransactions]);
+
+  // Sync selectedMonth with available months
+  useEffect(() => {
+    if (availableMonths.length === 0) return;
+    if (!selectedMonth || !availableMonths.some(m => m.value === selectedMonth)) {
+      setSelectedMonth(availableMonths[0].value);
+    }
+  }, [availableMonths, selectedMonth]);
+
+  // Filter list by selected month (using same datetime source as availableMonths)
+  const monthFilteredTransactions = useMemo(() => {
+    if (!selectedMonth) return transactions;
+    return transactions.filter(t => {
+      const dt = t.transaction_datetime_iso || t.created_at;
+      if (!dt) return false;
+      const d = new Date(dt);
+      if (isNaN(d.getTime())) return false;
+      const ym = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      return ym === selectedMonth;
+    });
+  }, [transactions, selectedMonth]);
 
   // Show re-login prompt when token is expired/invalid
   if (tokenError && isLineUser) {
@@ -255,16 +295,27 @@ const Index = () => {
 
         <div className={isAdmin ? 'grid gap-6 lg:grid-cols-3' : ''}>
           <div className={isAdmin ? 'lg:col-span-2 space-y-4' : 'space-y-4'}>
-            <TransactionFilters
-              search={search}
-              onSearchChange={setSearch}
-              category={category}
-              onCategoryChange={setCategory}
-              status={status}
-              onStatusChange={setStatus}
-            />
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex-1">
+                <TransactionFilters
+                  search={search}
+                  onSearchChange={setSearch}
+                  category={category}
+                  onCategoryChange={setCategory}
+                  status={status}
+                  onStatusChange={setStatus}
+                />
+              </div>
+              {availableMonths.length > 0 && (
+                <MonthSelector
+                  value={selectedMonth}
+                  onChange={setSelectedMonth}
+                  availableMonths={availableMonths}
+                />
+              )}
+            </div>
             <TransactionTable
-              transactions={transactions}
+              transactions={monthFilteredTransactions}
               onConfirm={handleConfirm}
               onEdit={handleEdit}
               onCancel={handleCancel}
