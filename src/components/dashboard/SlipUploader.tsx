@@ -6,6 +6,8 @@ import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import { useAuth } from '@/hooks/useAuth';
 import { useNavigate } from 'react-router-dom';
+import { DuplicateWarningDialog } from '@/components/transactions/DuplicateWarningDialog';
+import type { DuplicateCandidate } from '@/hooks/useDuplicateCheck';
 
 interface SlipUploaderProps {
   onExtracted?: (result: any) => void;
@@ -15,6 +17,7 @@ export function SlipUploader({ onExtracted }: SlipUploaderProps) {
   const [dragging, setDragging] = useState(false);
   const [loading, setLoading] = useState(false);
   const [preview, setPreview] = useState<string | null>(null);
+  const [dupDialog, setDupDialog] = useState<{ type: 'hard' | 'probable'; candidates: DuplicateCandidate[] } | null>(null);
   const { isAuthenticated } = useAuth();
   const navigate = useNavigate();
 
@@ -36,6 +39,16 @@ export function SlipUploader({ onExtracted }: SlipUploaderProps) {
       });
 
       if (error) {
+        // Try parse 409 duplicate context
+        let dupCtx: any = null;
+        try {
+          dupCtx = await (error as any).context?.json?.();
+        } catch { /* ignore */ }
+
+        if (dupCtx?.duplicate === 'hard' && dupCtx?.hardMatch) {
+          setDupDialog({ type: 'hard', candidates: [dupCtx.hardMatch] });
+          return;
+        }
         if (data?.existing_transaction_id) {
           toast.error('สลิปซ้ำ — รายการนี้มีอยู่แล้ว');
           return;
@@ -65,6 +78,7 @@ export function SlipUploader({ onExtracted }: SlipUploaderProps) {
   }, [handleFile]);
 
   return (
+    <>
     <Card>
       <CardHeader>
         <CardTitle className="text-lg flex items-center gap-2">
@@ -126,6 +140,14 @@ export function SlipUploader({ onExtracted }: SlipUploaderProps) {
         </div>
       </CardContent>
     </Card>
+    <DuplicateWarningDialog
+      open={!!dupDialog}
+      onOpenChange={(v) => { if (!v) setDupDialog(null); }}
+      type={dupDialog?.type || null}
+      candidates={dupDialog?.candidates || []}
+      onCancel={() => setDupDialog(null)}
+    />
+    </>
   );
 }
 

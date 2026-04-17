@@ -8,6 +8,7 @@ import { SlipUploader } from '@/components/dashboard/SlipUploader';
 import { MonthlyExpenseChart } from '@/components/dashboard/MonthlyExpenseChart';
 import { CategoryBreakdown } from '@/components/dashboard/CategoryBreakdown';
 import { TransactionEditDialog } from '@/components/transactions/TransactionEditDialog';
+import { DuplicateWarningDialog } from '@/components/transactions/DuplicateWarningDialog';
 import { useMyTransactions } from '@/hooks/useMyTransactions';
 import { useConfirmTransaction, useUpdateTransaction, useCancelTransaction, useCreateTransaction } from '@/hooks/useTransactions';
 import { useLineAuth } from '@/contexts/LineAuthContext';
@@ -17,19 +18,29 @@ import { toast } from 'sonner';
 import { Plus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import type { ExpenseCategory, TransactionStatus } from '@/types';
+import type { DuplicateCandidate } from '@/hooks/useDuplicateCheck';
 
 /** Calls liff-action edge function for LINE user mutations */
 function useLiffAction() {
   const { lineIdentity } = useLineAuth();
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async ({ action, transactionId, updates }: { action: string; transactionId?: string; updates?: Record<string, unknown> }) => {
+    mutationFn: async ({ action, transactionId, updates, acknowledgeDuplicates }: { action: string; transactionId?: string; updates?: Record<string, unknown>; acknowledgeDuplicates?: boolean }) => {
       const idToken = getFreshLineIdToken(lineIdentity?.idToken);
       if (!idToken) throw new Error('No LINE token');
       const { data, error } = await supabase.functions.invoke('liff-action', {
-        body: { action, transactionId, idToken, updates },
+        body: { action, transactionId, idToken, updates, acknowledgeDuplicates },
       });
-      if (error) throw error;
+      // Surface 409 duplicate payload through error
+      if (error) {
+        const errAny: any = error;
+        // Try parse FunctionsHttpError context
+        try {
+          const ctx = await (error as any).context?.json?.();
+          if (ctx?.duplicate) errAny.context = ctx;
+        } catch { /* ignore */ }
+        throw errAny;
+      }
       if (data?.error) throw new Error(data.error);
       return data;
     },
@@ -46,6 +57,8 @@ const Index = () => {
   const [category, setCategory] = useState('all');
   const [status, setStatus] = useState('all');
   const [createOpen, setCreateOpen] = useState(false);
+  const [pendingCreatePayload, setPendingCreatePayload] = useState<Record<string, unknown> | null>(null);
+  const [dupDialog, setDupDialog] = useState<{ type: 'hard' | 'probable'; candidates: DuplicateCandidate[] } | null>(null);
 
   const { data, isLoading } = useMyTransactions({
     search: search || undefined,
@@ -156,28 +169,58 @@ const Index = () => {
     });
   };
 
-  const handleCreate = (payload: Record<string, unknown>) => {
+  const handleCreate = (payload: Record<string, unknown>, acknowledgeDuplicates = false) => {
     if (isLineUser) {
       liffAction.mutate(
-        { action: 'create', updates: payload },
+        { action: 'create', updates: payload, acknowledgeDuplicates },
         {
           onSuccess: () => {
             toast.success('เพิ่มรายจ่ายสำเร็จ');
             setCreateOpen(false);
+            setPendingCreatePayload(null);
           },
-          onError: () => toast.error('เกิดข้อผิดพลาด'),
+          onError: (err: any) => {
+            const msg = err?.message || '';
+            // liff edge function returns 409 with duplicate payload — surfaced via err.context
+            const ctx = err?.context;
+            if (ctx?.duplicate || msg.includes('Duplicate')) {
+              setPendingCreatePayload(payload);
+              setDupDialog({
+                type: ctx?.duplicate === 'hard' ? 'hard' : 'probable',
+                candidates: ctx?.hardMatch ? [ctx.hardMatch] : (ctx?.probableMatches || []),
+              });
+              return;
+            }
+            toast.error('เกิดข้อผิดพลาด');
+          },
         }
       );
       return;
     }
-    createMutation.mutate(payload, {
-      onSuccess: () => {
-        toast.success('เพิ่มรายจ่ายสำเร็จ');
-        setCreateOpen(false);
-        queryClient.invalidateQueries({ queryKey: ['my-transactions'] });
-      },
-      onError: () => toast.error('เกิดข้อผิดพลาด'),
-    });
+    createMutation.mutate(
+      { ...payload, acknowledgeDuplicates },
+      {
+        onSuccess: () => {
+          toast.success('เพิ่มรายจ่ายสำเร็จ');
+          setCreateOpen(false);
+          setPendingCreatePayload(null);
+          queryClient.invalidateQueries({ queryKey: ['my-transactions'] });
+        },
+        onError: (err: any) => {
+          if (err?.code === 'DUPLICATE') {
+            setPendingCreatePayload(payload);
+            setDupDialog({
+              type: err.details.type,
+              candidates: err.details.hardMatch
+                ? [err.details.hardMatch]
+                : err.details.probableMatches,
+            });
+            return;
+          }
+          toast.error('เกิดข้อผิดพลาด');
+        },
+      }
+    );
   };
 
   const isMutating = isLineUser ? liffAction.isPending : false;
@@ -248,9 +291,28 @@ const Index = () => {
       <TransactionEditDialog
         mode="create"
         open={createOpen}
-        onOpenChange={setCreateOpen}
-        onSave={handleCreate}
+        onOpenChange={(v) => {
+          setCreateOpen(v);
+          if (!v) setPendingCreatePayload(null);
+        }}
+        onSave={(payload) => handleCreate(payload)}
         saving={isLineUser ? liffAction.isPending : createMutation.isPending}
+      />
+
+      {/* Duplicate warning dialog (shared) */}
+      <DuplicateWarningDialog
+        open={!!dupDialog}
+        onOpenChange={(v) => { if (!v) setDupDialog(null); }}
+        type={dupDialog?.type || null}
+        candidates={dupDialog?.candidates || []}
+        onContinue={() => {
+          if (pendingCreatePayload) handleCreate(pendingCreatePayload, true);
+          setDupDialog(null);
+        }}
+        onCancel={() => {
+          setDupDialog(null);
+          setPendingCreatePayload(null);
+        }}
       />
     </AppLayout>
   );

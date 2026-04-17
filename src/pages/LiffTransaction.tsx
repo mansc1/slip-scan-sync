@@ -10,7 +10,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Textarea } from '@/components/ui/textarea';
 import { EXPENSE_CATEGORIES, type ExpenseCategory, type TransactionType, type PaymentMethod } from '@/types';
 import { CancelTransactionDialog } from '@/components/transactions/CancelTransactionDialog';
+import { DuplicateWarningDialog } from '@/components/transactions/DuplicateWarningDialog';
 import { type TransactionEditValues, getDefaultEditValues, buildUpdatePayload, PAYMENT_METHODS } from '@/components/transactions/transactionFields';
+import type { DuplicateCandidate } from '@/hooks/useDuplicateCheck';
 import { Check, X, Pencil, Loader2, AlertTriangle, ShieldX, CheckCircle2, Ban } from 'lucide-react';
 
 const TRANSACTION_TYPES: { value: TransactionType; label: string }[] = [
@@ -34,6 +36,7 @@ export default function LiffTransaction() {
   const [saving, setSaving] = useState(false);
   const [cancelOpen, setCancelOpen] = useState(false);
   const [cancelling, setCancelling] = useState(false);
+  const [dupDialog, setDupDialog] = useState<{ type: 'hard' | 'probable'; candidates: DuplicateCandidate[] } | null>(null);
 
   // Edit form state — uses shared schema
   const [editValues, setEditValues] = useState<TransactionEditValues>({
@@ -77,7 +80,7 @@ export default function LiffTransaction() {
     } catch (e: any) { setErrorMsg(e.message); setViewState('error'); }
   }
 
-  async function handleAction(action: 'confirm' | 'update' | 'cancel') {
+  async function handleAction(action: 'confirm' | 'update' | 'cancel', acknowledgeDuplicates = false) {
     if (!id) return;
     const freshToken = getFreshLineIdToken(idToken);
     if (!freshToken) { setErrorMsg('เซสชันหมดอายุ กรุณาเข้าสู่ระบบ LINE ใหม่'); setViewState('error'); return; }
@@ -86,12 +89,25 @@ export default function LiffTransaction() {
     else setSaving(true);
 
     try {
-      const body: any = { action, transactionId: id, idToken: freshToken };
+      const body: any = { action, transactionId: id, idToken: freshToken, acknowledgeDuplicates };
       if (action === 'update') {
         body.updates = buildUpdatePayload(editValues);
       }
 
       const { data, error } = await supabase.functions.invoke('liff-action', { body });
+
+      // Handle 409 duplicate response
+      if (error) {
+        let dupCtx: any = null;
+        try { dupCtx = await (error as any).context?.json?.(); } catch { /* ignore */ }
+        if (dupCtx?.duplicate) {
+          setDupDialog({
+            type: dupCtx.duplicate === 'hard' ? 'hard' : 'probable',
+            candidates: dupCtx.hardMatch ? [dupCtx.hardMatch] : (dupCtx.probableMatches || []),
+          });
+          return;
+        }
+      }
 
       if (error || data?.error) {
         setErrorMsg(data?.error || 'เกิดข้อผิดพลาด');
@@ -343,6 +359,19 @@ export default function LiffTransaction() {
           cancelling={cancelling}
         />
       )}
+
+      {/* Duplicate warning dialog */}
+      <DuplicateWarningDialog
+        open={!!dupDialog}
+        onOpenChange={(v) => { if (!v) setDupDialog(null); }}
+        type={dupDialog?.type || null}
+        candidates={dupDialog?.candidates || []}
+        onContinue={() => {
+          setDupDialog(null);
+          handleAction('update', true);
+        }}
+        onCancel={() => setDupDialog(null)}
+      />
     </div>
   );
 }

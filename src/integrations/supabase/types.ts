@@ -32,6 +32,39 @@ export type Database = {
         }
         Relationships: []
       }
+      duplicate_overrides: {
+        Row: {
+          created_at: string
+          duplicate_type: string
+          id: string
+          matched_transaction_id: string | null
+          new_transaction_id: string | null
+          owner_line_user_id: string | null
+          owner_user_id: string | null
+          reason: string | null
+        }
+        Insert: {
+          created_at?: string
+          duplicate_type: string
+          id?: string
+          matched_transaction_id?: string | null
+          new_transaction_id?: string | null
+          owner_line_user_id?: string | null
+          owner_user_id?: string | null
+          reason?: string | null
+        }
+        Update: {
+          created_at?: string
+          duplicate_type?: string
+          id?: string
+          matched_transaction_id?: string | null
+          new_transaction_id?: string | null
+          owner_line_user_id?: string | null
+          owner_user_id?: string | null
+          reason?: string | null
+        }
+        Relationships: []
+      }
       export_jobs: {
         Row: {
           created_at: string
@@ -269,6 +302,32 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      find_duplicate_candidates: {
+        Args: {
+          _amount: number
+          _datetime: string
+          _exclude_id?: string
+          _image_hash: string
+          _merchant: string
+          _owner_line_user_id: string
+          _owner_user_id: string
+          _reference_no: string
+        }
+        Returns: {
+          amount: number
+          date_display: string
+          match_type: string
+          merchant_name: string
+          payer_name: string
+          receiver_name: string
+          reference_no: string
+          source: string
+          status: Database["public"]["Enums"]["transaction_status"]
+          time_display: string
+          transaction_datetime_iso: string
+          transaction_id: string
+        }[]
+      }
       is_admin: { Args: { _user_id: string }; Returns: boolean }
     }
     Enums: {
